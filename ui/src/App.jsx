@@ -3,16 +3,40 @@ import reactLogo from './assets/react.svg'
 import viteLogo from '/vite.svg'
 import './App.css'
 
+import { useApiInfo } from './apiInfoStore'
+import { Registration } from './features/admin'
+
 function App() {
   const [count, setCount] = useState(0)
   const [message, setMessage] = useState('')
+  const { initialized, loading, error, refetch } = useApiInfo()
 
   useEffect(() => {
+    if (initialized !== true) return
     fetch('/api/hello')
       .then((res) => res.text())
       .then(setMessage)
       .catch(() => setMessage('Failed to fetch'))
-  }, [])
+  }, [initialized])
+
+  if (loading) {
+    return <p className="api-message">Loading...</p>
+  }
+
+  if (error) {
+    return (
+      <p className="api-message">
+        Failed to connect. Is the API running?{' '}
+        <button type="button" onClick={refetch}>
+          Retry
+        </button>
+      </p>
+    )
+  }
+
+  if (!initialized) {
+    return <Registration onSuccess={refetch} />
+  }
 
   return (
     <>

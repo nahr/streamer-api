@@ -1,0 +1,45 @@
+.admin-form-container {
+  max-width: 320px;
+  margin: 4rem auto;
+  padding: 2rem;
+  text-align: center;
+}
+
+.admin-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
+.admin-form input {
+  padding: 0.6rem 1rem;
+  font-size: 1rem;
+  border: 1px solid #646cff;
+  border-radius: 8px;
+}
+
+.admin-form button {
+  padding: 0.6rem 1rem;
+  font-size: 1rem;
+  background: #646cff;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.admin-form button:hover:not(:disabled) {
+  background: #535bf2;
+}
+
+.admin-form button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.admin-form-error {
+  color: #e74c3c;
+  margin: 0;
+  font-size: 0.9rem;
+}

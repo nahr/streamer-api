@@ -16,10 +16,10 @@ A simple app with an API and UI, served together.
 
 ## Local Development
 
-**Terminal 1 – API:**
+**Terminal 1 – API** (auto-reloads on changes; requires [cargo-watch](https://crates.io/crates/cargo-watch): `cargo install cargo-watch`):
 
 ```bash
-cd api && cargo run
+cd api && cargo watch -x run
 ```
 
 **Terminal 2 – UI:**
@@ -29,3 +29,5 @@ cd ui && npm run dev
 ```
 
 The UI proxies `/api` to the API. Open <http://localhost:5173>.
+
+To reset the database (e.g. if `initialized` is wrong): delete `api/data/` and restart the API.

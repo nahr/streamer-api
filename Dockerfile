@@ -8,6 +8,7 @@ RUN npm run build
 
 # Build API
 FROM rust:1-bookworm AS api-builder
+RUN apt-get update && apt-get install -y libclang-dev clang && rm -rf /var/lib/apt/lists/*
 WORKDIR /app/api
 COPY api/Cargo.toml api/Cargo.lock ./
 COPY api/src ./src
