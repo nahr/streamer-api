@@ -1,0 +1,6 @@
+services:
+  table-tv:
+    build: .
+    ports:
+      - "80:80"
+    hostname: table-tv
