@@ -4,12 +4,14 @@ import viteLogo from '/vite.svg'
 import './App.css'
 
 import { useApiInfo } from './apiInfoStore'
-import { Registration } from './features/admin'
+import { useAuth } from './authStore'
+import { Registration, Login } from './features/admin'
 
 function App() {
   const [count, setCount] = useState(0)
   const [message, setMessage] = useState('')
-  const { initialized, loading, error, refetch } = useApiInfo()
+  const { initialized, loading, retrying, refetch } = useApiInfo()
+  const { isLoggedIn, login, logout } = useAuth()
 
   useEffect(() => {
     if (initialized !== true) return
@@ -20,17 +22,11 @@ function App() {
   }, [initialized])
 
   if (loading) {
-    return <p className="api-message">Loading...</p>
-  }
-
-  if (error) {
     return (
-      <p className="api-message">
-        Failed to connect. Is the API running?{' '}
-        <button type="button" onClick={refetch}>
-          Retry
-        </button>
-      </p>
+      <div className="api-loading">
+        <div className="spinner" aria-hidden />
+        <p className="api-message">{retrying ? 'Connecting... Retrying every 5 seconds.' : 'Loading...'}</p>
+      </div>
     )
   }
 
@@ -38,8 +34,17 @@ function App() {
     return <Registration onSuccess={refetch} />
   }
 
+  if (!isLoggedIn) {
+    return <Login onSuccess={login} />
+  }
+
   return (
     <>
+      <div style={{ position: 'absolute', top: 16, right: 16 }}>
+        <button type="button" onClick={logout} style={{ fontSize: '0.9rem', padding: '0.4rem 0.8rem' }}>
+          Log out
+        </button>
+      </div>
       <div>
         <a href="https://vite.dev" target="_blank">
           <img src={viteLogo} className="logo" alt="Vite logo" />
