@@ -145,7 +145,17 @@ export function MatchesSettings() {
                       <TableCell>{formatDuration(durationMs)}</TableCell>
                       <TableCell>
                         {match.end_time ? (
-                          <Chip label="Ended" size="small" color="default" />
+                          <Chip
+                            label={
+                              match.player_one.games_won >= match.player_one.race_to
+                                ? `${match.player_one.name} won`
+                                : match.player_two.games_won >= match.player_two.race_to
+                                  ? `${match.player_two.name} won`
+                                  : 'Ended early'
+                            }
+                            size="small"
+                            color="default"
+                          />
                         ) : (
                           <Chip label="Ongoing" size="small" color="primary" />
                         )}

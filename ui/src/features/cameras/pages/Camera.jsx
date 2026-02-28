@@ -418,7 +418,11 @@ export function Camera() {
               )}
               {activeMatch.end_time && (
                 <Typography color="text.secondary" variant="body2">
-                  Match ended
+                  {activeMatch.player_one.games_won >= activeMatch.player_one.race_to
+                    ? `${activeMatch.player_one.name} won`
+                    : activeMatch.player_two.games_won >= activeMatch.player_two.race_to
+                      ? `${activeMatch.player_two.name} won`
+                      : 'Match ended early'}
                 </Typography>
               )}
             </Stack>

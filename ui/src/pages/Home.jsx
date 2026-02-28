@@ -41,6 +41,13 @@ function formatDuration(ms) {
   return `${seconds}s`
 }
 
+function getMatchWinner(match) {
+  if (!match.end_time) return null
+  if (match.player_one.games_won >= match.player_one.race_to) return match.player_one.name
+  if (match.player_two.games_won >= match.player_two.race_to) return match.player_two.name
+  return null
+}
+
 function MatchDuration({ match }) {
   const [now, setNow] = useState(Date.now())
   useEffect(() => {
@@ -122,13 +129,19 @@ export function Home() {
             {matches.map((match) => {
               const camera = cameraByName[match.camera_name]
               const score = `${match.player_one.games_won} - ${match.player_two.games_won}`
+              const winner = getMatchWinner(match)
               const secondary = (
                 <>
                   {formatTime(match.start_time)} · <MatchDuration match={match} />
                   {match.end_time && (
                     <>
                       {' '}
-                      <Chip label="Ended" size="small" component="span" sx={{ verticalAlign: 'middle' }} />
+                      <Chip
+                        label={winner ? `${winner} won` : 'Ended early'}
+                        size="small"
+                        component="span"
+                        sx={{ verticalAlign: 'middle' }}
+                      />
                     </>
                   )}
                 </>
