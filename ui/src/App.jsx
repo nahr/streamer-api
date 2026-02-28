@@ -43,6 +43,7 @@ function App() {
         <Route path="admin" element={<Admin />} />
         <Route path="admin/server-settings" element={<Admin />} />
         <Route path="admin/camera-settings" element={<Admin />} />
+        <Route path="admin/matches" element={<Admin />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

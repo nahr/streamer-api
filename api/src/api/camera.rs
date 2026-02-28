@@ -1,6 +1,6 @@
 use axum::{
     extract::{Path, State},
-    routing::{delete, get, post, put},
+    routing::get,
     Json,
 };
 use polodb_core::bson::oid::ObjectId;

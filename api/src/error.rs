@@ -23,6 +23,9 @@ pub enum ApiError {
     #[error("Camera not found")]
     CameraNotFound,
 
+    #[error("Pool match not found")]
+    PoolMatchNotFound,
+
     #[error("Invalid credentials")]
     InvalidCredentials,
 
@@ -36,6 +39,7 @@ impl IntoResponse for ApiError {
             ApiError::AdminExists => (StatusCode::CONFLICT, "Admin already exists"),
             ApiError::InternalCameraExists => (StatusCode::CONFLICT, "Internal camera already exists"),
             ApiError::CameraNotFound => (StatusCode::NOT_FOUND, "Camera not found"),
+            ApiError::PoolMatchNotFound => (StatusCode::NOT_FOUND, "Pool match not found"),
             ApiError::InvalidCredentials => (StatusCode::UNAUTHORIZED, "Invalid credentials"),
             ApiError::BadRequest(_) => (StatusCode::BAD_REQUEST, "Bad request"),
             _ => (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error"),

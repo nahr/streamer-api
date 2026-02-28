@@ -4,8 +4,9 @@ import { useAuth } from '../../../authStore.jsx'
 import { Login } from '../components/login'
 import { ServerSettings } from './ServerSettings'
 import { CameraSettings } from './CameraSettings'
+import { MatchesSettings } from './MatchesSettings'
 
-const TAB_PATHS = ['/admin/server-settings', '/admin/camera-settings']
+const TAB_PATHS = ['/admin/server-settings', '/admin/camera-settings', '/admin/matches']
 
 export function Admin() {
   const navigate = useNavigate()
@@ -33,9 +34,11 @@ export function Admin() {
       <Tabs value={tabIndex} onChange={handleTabChange} sx={{ mb: 2 }}>
         <Tab label="Server Settings" />
         <Tab label="Camera Settings" />
+        <Tab label="Matches" />
       </Tabs>
       {tabIndex === 0 && <ServerSettings />}
       {tabIndex === 1 && <CameraSettings />}
+      {tabIndex === 2 && <MatchesSettings />}
     </Box>
   )
 }
