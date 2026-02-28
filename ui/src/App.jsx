@@ -6,7 +6,8 @@ import { useAuth } from './authStore.jsx'
 import { Registration } from './features/admin'
 import { Layout } from './components/Layout'
 import { Home } from './pages/Home'
-import { Admin } from './pages/Admin'
+import { Camera } from './features/cameras'
+import { Admin } from './features/admin'
 
 function App() {
   const { initialized, loading, retrying, refetch } = useApiInfo()
@@ -38,6 +39,7 @@ function App() {
     <Routes>
       <Route path="/" element={<Layout />}>
         <Route index element={<Home />} />
+        <Route path="camera/:id" element={<Camera />} />
         <Route path="admin" element={<Admin />} />
         <Route path="admin/server-settings" element={<Admin />} />
         <Route path="admin/camera-settings" element={<Admin />} />

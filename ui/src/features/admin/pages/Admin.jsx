@@ -1,7 +1,7 @@
 import { useNavigate, useLocation } from 'react-router-dom'
 import { Box, Tab, Tabs } from '@mui/material'
-import { useAuth } from '../authStore.jsx'
-import { Login } from '../features/admin'
+import { useAuth } from '../../../authStore.jsx'
+import { Login } from '../components/login'
 import { ServerSettings } from './ServerSettings'
 import { CameraSettings } from './CameraSettings'
 

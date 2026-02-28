@@ -2,6 +2,7 @@ use polodb_core::Database;
 use std::path::Path;
 
 pub mod admin;
+pub mod camera;
 
 use crate::error::ApiError;
 

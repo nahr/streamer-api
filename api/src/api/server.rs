@@ -3,7 +3,7 @@ use std::path::Path;
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
 
-use crate::api::{admin, info};
+use crate::api::{admin, camera, info};
 use crate::db::Db;
 use crate::error::ApiError;
 
@@ -14,6 +14,7 @@ impl ApiServer {
         let mut app = Router::new()
             .route("/api/hello", get(hello_world))
             .merge(admin::routes())
+            .merge(camera::routes())
             .merge(info::routes())
             .layer(TraceLayer::new_for_http())
             .with_state(db);
