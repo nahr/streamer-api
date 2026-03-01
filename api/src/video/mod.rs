@@ -8,7 +8,7 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use bytes::Bytes;
-use image::{load_from_memory, Rgb, RgbImage};
+use image::{imageops::FilterType, load_from_memory, RgbImage, Rgba, RgbaImage};
 use imageproc::drawing::{draw_filled_rect_mut, draw_hollow_circle_mut, draw_text_mut};
 use imageproc::rect::Rect;
 use nokhwa::{
@@ -17,15 +17,46 @@ use nokhwa::{
     Camera,
 };
 use polodb_core::bson::oid::ObjectId;
-use std::sync::{Arc, RwLock, OnceLock};
+use std::sync::{Arc, OnceLock, RwLock};
 use tokio::sync::broadcast;
-use tokio_stream::{StreamExt, wrappers::BroadcastStream};
+use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 
 use crate::db::pool_match::{MatchPlayer, Rating};
 use crate::db::Db;
 use crate::error::ApiError;
 
 const MJPEG_BOUNDARY: &str = "frame";
+
+/// Overlay PNG directory.
+const OVERLAY_PNG_DIR: &str = "data";
+
+/// Overlay path for a camera. Sanitizes camera name for use in filename.
+fn overlay_path_for_camera(camera_name: &str) -> std::path::PathBuf {
+    let sanitized: String = camera_name
+        .chars()
+        .map(|c| {
+            if c.is_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    let name = if sanitized.is_empty() {
+        "internal".to_string()
+    } else {
+        sanitized
+    };
+    std::path::Path::new(OVERLAY_PNG_DIR).join(format!("rtmp-overlay-{}.png", name))
+}
+
+/// Height of the overlay bar in pixels (matches MAX_STREAM_WIDTH for aspect).
+const OVERLAY_BAR_HEIGHT: u32 = 80;
+
+/// Max stream dimensions. Downscaling reduces CPU load for decode/encode and improves responsiveness.
+const MAX_STREAM_WIDTH: u32 = 1280;
+const MAX_STREAM_HEIGHT: u32 = 720;
+const JPEG_QUALITY: u8 = 65;
 
 /// Overlay data for an active match. Displayed at bottom of stream.
 #[derive(Clone, Debug)]
@@ -43,7 +74,7 @@ pub struct OverlayPlayer {
 }
 
 impl OverlayPlayer {
-    fn from_match_player(p: &MatchPlayer) -> Self {
+    pub fn from_match_player(p: &MatchPlayer) -> Self {
         let rating = p.rating.as_ref().map(|r| match r {
             Rating::Apa(v) => format!("APA {}", v),
             Rating::Fargo(v) => format!("Fargo {}", v),
@@ -60,8 +91,9 @@ impl OverlayPlayer {
 /// Shared overlay state. Updated by pool_match handlers when match changes.
 pub type OverlayState = Arc<RwLock<Option<MatchOverlay>>>;
 
-/// Active RTMP streams: camera_id -> stop sender. Send to stop the stream.
-pub type RtmpState = Arc<RwLock<std::collections::HashMap<String, std::sync::mpsc::Sender<()>>>>;
+/// Active RTMP streams: camera_id -> (stop sender, rtmp_url). Send to stop; url used for restart.
+pub type RtmpState =
+    Arc<RwLock<std::collections::HashMap<String, (std::sync::mpsc::Sender<()>, String)>>>;
 
 pub fn rtmp_state_new() -> RtmpState {
     Arc::new(RwLock::new(std::collections::HashMap::new()))
@@ -80,9 +112,15 @@ pub fn ensure_internal_camera_ready(overlay: OverlayState) {
 }
 
 /// Restore overlay from any active match in the database. Call at server startup.
-pub fn restore_overlay_from_db(db: &Db, overlay_state: &OverlayState) {
-    if let Ok(Some(internal)) = db.find_internal_camera() {
-        update_overlay(db, overlay_state, &internal.name);
+pub fn restore_overlay_from_db(db: &Db, overlay_state: &OverlayState, rtmp_processes: &RtmpState) {
+    let cameras = db.list_cameras().ok().unwrap_or_default();
+    for camera in cameras {
+        if camera.camera_type.is_internal()
+            && db.find_active_pool_match_by_camera_name(&camera.name).ok().flatten().is_some()
+        {
+            update_overlay(db, overlay_state, &camera.name, rtmp_processes, None);
+            break;
+        }
     }
 }
 
@@ -101,32 +139,66 @@ impl InternalCameraState {
     }
 }
 
+/// Downscale image to fit within max dimensions. Reduces CPU load for overlay and JPEG encode.
+fn maybe_downscale(img: RgbImage, max_w: u32, max_h: u32) -> RgbImage {
+    if img.width() <= max_w && img.height() <= max_h {
+        return img;
+    }
+    let (w, h) = (img.width() as f32, img.height() as f32);
+    let scale = (max_w as f32 / w).min(max_h as f32 / h).min(1.0);
+    let new_w = (w * scale).round() as u32;
+    let new_h = (h * scale).round() as u32;
+    let new_w = new_w.max(1);
+    let new_h = new_h.max(1);
+    image::imageops::resize(&img, new_w, new_h, FilterType::Triangle)
+}
+
 fn load_font() -> Option<FontRef<'static>> {
     let font_bytes = include_bytes!("../../assets/fonts/DejaVuSans.ttf");
     FontRef::try_from_slice(font_bytes).ok()
 }
 
-/// Draw the match overlay onto an RGB image. Bottom bar with player names, ratings, score.
-fn draw_overlay(img: &mut RgbImage, overlay: &MatchOverlay, font: &FontRef) {
+/// Draw the match overlay onto an RGBA image (for PNG export). Bar at bottom, transparent elsewhere.
+fn draw_overlay_to_rgba(
+    img: &mut RgbaImage,
+    overlay: &MatchOverlay,
+    camera_name: &str,
+    font: &FontRef,
+) {
     let (w, h) = (img.width() as i32, img.height() as i32);
     if w < 1 || h < 1 {
         return;
     }
-    let scale = (h as f32 / 280.0).max(10.0);
+    // Scale for overlay bar (80px): use larger scale so text is readable when composited on video
+    let scale = (h as f32 / 80.0 * 20.0).max(14.0).min(36.0);
     let line_h = (scale * 1.1) as i32;
     let bar_h = (line_h * 2 + 20).min(h - 4).max(32).min(h);
     let bar_y = (h - bar_h).max(0);
     let y = bar_y + 6;
 
-    // Solid dark background bar (clamp to image bounds)
     let bar_rect = Rect::at(0, bar_y).of_size(w as u32, bar_h as u32);
-    draw_filled_rect_mut(img, bar_rect, Rgb([0u8, 0, 0]));
+    draw_filled_rect_mut(img, bar_rect, Rgba([0u8, 0, 0, 230]));
 
-    let white = Rgb([255u8, 255, 255]);
-    let gray = Rgb([180u8, 180, 180]);
+    let white = Rgba([255u8, 255, 255, 255]);
+    let gray = Rgba([180u8, 180, 180, 255]);
     let scale_sm = scale * 0.65;
 
-    // Player 1 (left): name, then rating below if present
+    // Camera name in top-right corner
+    if !camera_name.is_empty() {
+        let (cn_w, _) =
+            imageproc::drawing::text_size(ab_glyph::PxScale::from(scale_sm), font, camera_name);
+        let cn_x = (w - cn_w as i32 - 12).max(0);
+        draw_text_mut(
+            img,
+            gray,
+            cn_x,
+            y,
+            ab_glyph::PxScale::from(scale_sm),
+            font,
+            camera_name,
+        );
+    }
+
     draw_text_mut(
         img,
         white,
@@ -137,20 +209,34 @@ fn draw_overlay(img: &mut RgbImage, overlay: &MatchOverlay, font: &FontRef) {
         &overlay.player_one.name,
     );
     if let Some(ref r) = overlay.player_one.rating {
-        draw_text_mut(img, gray, 12, y + line_h, ab_glyph::PxScale::from(scale_sm), font, r);
+        draw_text_mut(
+            img,
+            gray,
+            12,
+            y + line_h,
+            ab_glyph::PxScale::from(scale_sm),
+            font,
+            r,
+        );
     }
 
-    // Center: [circle] score1 | race to \n X/Y | [circle] score2
     let score_scale = scale * 1.1;
     let s1 = overlay.player_one.games_won.to_string();
     let s2 = overlay.player_two.games_won.to_string();
     let race_line1 = "race to";
-    let race_line2 = format!("{}/{}", overlay.player_one.race_to, overlay.player_two.race_to);
+    let race_line2 = format!(
+        "{}/{}",
+        overlay.player_one.race_to, overlay.player_two.race_to
+    );
 
-    let (s1_w, s1_h) = imageproc::drawing::text_size(ab_glyph::PxScale::from(score_scale), font, &s1);
-    let (race1_w, race1_h) = imageproc::drawing::text_size(ab_glyph::PxScale::from(scale_sm), font, race_line1);
-    let (race2_w, _) = imageproc::drawing::text_size(ab_glyph::PxScale::from(scale_sm), font, &race_line2);
-    let (s2_w, s2_h) = imageproc::drawing::text_size(ab_glyph::PxScale::from(score_scale), font, &s2);
+    let (s1_w, s1_h) =
+        imageproc::drawing::text_size(ab_glyph::PxScale::from(score_scale), font, &s1);
+    let (race1_w, race1_h) =
+        imageproc::drawing::text_size(ab_glyph::PxScale::from(scale_sm), font, race_line1);
+    let (race2_w, _) =
+        imageproc::drawing::text_size(ab_glyph::PxScale::from(scale_sm), font, &race_line2);
+    let (s2_w, s2_h) =
+        imageproc::drawing::text_size(ab_glyph::PxScale::from(score_scale), font, &s2);
 
     let race_w = race1_w.max(race2_w);
     let gap = 12;
@@ -164,16 +250,46 @@ fn draw_overlay(img: &mut RgbImage, overlay: &MatchOverlay, font: &FontRef) {
     let s1_cy = y + s1_h as i32 / 2;
     let s2_cy = y + s2_h as i32 / 2;
 
-    // Draw circles around both scores
     draw_hollow_circle_mut(img, (s1_x + s1_w as i32 / 2, s1_cy), circle_r, white);
     draw_hollow_circle_mut(img, (s2_x + s2_w as i32 / 2, s2_cy), circle_r, white);
 
-    draw_text_mut(img, white, s1_x, y, ab_glyph::PxScale::from(score_scale), font, &s1);
-    draw_text_mut(img, gray, race_x, y, ab_glyph::PxScale::from(scale_sm), font, race_line1);
-    draw_text_mut(img, gray, race_x, y + race1_h as i32 + 2, ab_glyph::PxScale::from(scale_sm), font, &race_line2);
-    draw_text_mut(img, white, s2_x, y, ab_glyph::PxScale::from(score_scale), font, &s2);
+    draw_text_mut(
+        img,
+        white,
+        s1_x,
+        y,
+        ab_glyph::PxScale::from(score_scale),
+        font,
+        &s1,
+    );
+    draw_text_mut(
+        img,
+        gray,
+        race_x,
+        y,
+        ab_glyph::PxScale::from(scale_sm),
+        font,
+        race_line1,
+    );
+    draw_text_mut(
+        img,
+        gray,
+        race_x,
+        y + race1_h as i32 + 2,
+        ab_glyph::PxScale::from(scale_sm),
+        font,
+        &race_line2,
+    );
+    draw_text_mut(
+        img,
+        white,
+        s2_x,
+        y,
+        ab_glyph::PxScale::from(score_scale),
+        font,
+        &s2,
+    );
 
-    // Player 2 (right): name, then rating below if present
     let p2_w_approx = (overlay.player_two.name.len() as f32 * scale * 0.6) as i32;
     let p2_x = (w - p2_w_approx - 16).max(cx + total_w + 24);
     draw_text_mut(
@@ -186,20 +302,81 @@ fn draw_overlay(img: &mut RgbImage, overlay: &MatchOverlay, font: &FontRef) {
         &overlay.player_two.name,
     );
     if let Some(ref r) = overlay.player_two.rating {
-        draw_text_mut(img, gray, p2_x, y + line_h, ab_glyph::PxScale::from(scale_sm), font, r);
+        draw_text_mut(
+            img,
+            gray,
+            p2_x,
+            y + line_h,
+            ab_glyph::PxScale::from(scale_sm),
+            font,
+            r,
+        );
     }
 }
 
-/// Spawn the camera capture task. Composites overlay onto frames when match is active.
-fn spawn_camera_capture(tx: broadcast::Sender<Bytes>, overlay_state: OverlayState) {
-    std::thread::spawn(move || {
-        let font = load_font();
-        if font.is_none() {
-            tracing::warn!("Failed to load font, overlay will be skipped");
-        }
+/// Temp path for atomic overlay write. Must end in .png so image crate recognizes format.
+fn overlay_tmp_path(path: &std::path::Path) -> std::path::PathBuf {
+    path.with_file_name("rtmp-overlay.tmp.png")
+}
 
-        let index = CameraIndex::Index(0);
-        let requested = RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestFrameRate);
+/// Write overlay to PNG for ffmpeg to use. Atomic write so ffmpeg -reload picks up changes.
+fn render_overlay_to_png(overlay: &MatchOverlay, camera_name: &str, path: &std::path::Path) {
+    if let Some(font) = load_font() {
+        let mut img =
+            RgbaImage::from_pixel(MAX_STREAM_WIDTH, OVERLAY_BAR_HEIGHT, Rgba([0, 0, 0, 0]));
+        draw_overlay_to_rgba(&mut img, overlay, camera_name, &font);
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let tmp = overlay_tmp_path(path);
+        if let Err(e) = img.save(&tmp) {
+            tracing::warn!(path = ?tmp, error = %e, "Failed to save overlay PNG");
+            return;
+        }
+        if let Err(e) = std::fs::rename(&tmp, path) {
+            tracing::warn!(path = ?path, error = %e, "Failed to rename overlay PNG");
+            let _ = std::fs::remove_file(&tmp);
+            return;
+        }
+        tracing::info!(path = %path.display(), "Overlay PNG written");
+    } else {
+        tracing::warn!("No font for overlay PNG");
+    }
+}
+
+/// Write empty transparent PNG when overlay is cleared. Atomic write for ffmpeg -reload.
+fn clear_overlay_png(path: &std::path::Path) {
+    if let Some(parent) = path.parent() {
+        if let Err(e) = std::fs::create_dir_all(parent) {
+            tracing::warn!(path = ?parent, error = %e, "Failed to create data directory for overlay");
+            return;
+        }
+    }
+    let img = RgbaImage::from_pixel(MAX_STREAM_WIDTH, OVERLAY_BAR_HEIGHT, Rgba([0, 0, 0, 0]));
+    let tmp = overlay_tmp_path(path);
+    if let Err(e) = img.save(&tmp) {
+        tracing::warn!(path = ?tmp, error = %e, "Failed to save empty overlay PNG");
+        return;
+    }
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        tracing::warn!(path = ?path, error = %e, "Failed to rename overlay PNG");
+        let _ = std::fs::remove_file(&tmp);
+        return;
+    }
+    tracing::info!(path = %path.display(), "Overlay PNG cleared (transparent)");
+}
+
+/// Spawn the camera capture task. Emits raw MJPEG; overlay is applied by ffmpeg from data/rtmp-overlay.png.
+fn spawn_camera_capture(tx: broadcast::Sender<Bytes>, _overlay_state: OverlayState) {
+    std::thread::spawn(move || {
+        let cam_idx = std::env::var("CAMERA_INDEX")
+            .ok()
+            .and_then(|s| s.parse().ok())
+            .unwrap_or(0);
+        let index = CameraIndex::Index(cam_idx);
+        tracing::info!(camera_index = cam_idx, "Using camera");
+        let requested =
+            RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestFrameRate);
 
         let mut camera = match Camera::new(index, requested) {
             Ok(c) => c,
@@ -219,56 +396,36 @@ fn spawn_camera_capture(tx: broadcast::Sender<Bytes>, overlay_state: OverlayStat
         loop {
             match camera.frame() {
                 Ok(buffer) => {
-                    // Clone overlay quickly and release lock before expensive draw/encode.
-                    let overlay = overlay_state
-                        .read()
-                        .ok()
-                        .and_then(|g| g.clone());
-
                     let jpeg_bytes = if buffer.source_frame_format() == FrameFormat::MJPEG {
                         let raw = buffer.buffer();
-                        if let (Some(overlay), Some(font)) = (overlay.as_ref(), font.as_ref()) {
-                            let overlay_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                load_from_memory(raw).ok().and_then(|dyn_img| {
-                                    let mut rgb = dyn_img.to_rgb8();
-                                    draw_overlay(&mut rgb, overlay, font);
-                                    let mut jpeg = Vec::new();
-                                    image::codecs::jpeg::JpegEncoder::new_with_quality(&mut jpeg, 80)
-                                        .encode_image(&rgb)
-                                        .ok()
-                                        .map(|_| Bytes::from(jpeg))
-                                })
-                            }));
-                            match overlay_result {
-                                Ok(Some(bytes)) => bytes,
-                                Ok(None) | Err(_) => {
-                                    if overlay_result.is_err() {
-                                        tracing::warn!("Overlay panic, using raw frame");
-                                    } else {
-                                        tracing::debug!("Overlay apply failed (load/encode), using raw frame");
-                                    }
-                                    Bytes::copy_from_slice(raw)
+                        match load_from_memory(raw) {
+                            Ok(dyn_img) => {
+                                let rgb = maybe_downscale(
+                                    dyn_img.to_rgb8(),
+                                    MAX_STREAM_WIDTH,
+                                    MAX_STREAM_HEIGHT,
+                                );
+                                let mut jpeg = Vec::new();
+                                match image::codecs::jpeg::JpegEncoder::new_with_quality(
+                                    &mut jpeg,
+                                    JPEG_QUALITY,
+                                )
+                                .encode_image(&rgb)
+                                {
+                                    Ok(_) => Bytes::from(jpeg),
+                                    Err(_) => Bytes::copy_from_slice(raw),
                                 }
                             }
-                        } else {
-                            Bytes::copy_from_slice(raw)
+                            Err(_) => Bytes::copy_from_slice(raw),
                         }
                     } else {
                         match buffer.decode_image::<RgbFormat>() {
-                            Ok(mut rgb) => {
-                                if let (Some(overlay), Some(font)) = (overlay.as_ref(), font.as_ref()) {
-                                    if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                        draw_overlay(&mut rgb, overlay, font);
-                                    }))
-                                    .is_err()
-                                    {
-                                        tracing::warn!("Overlay panic, using frame without overlay");
-                                    }
-                                }
+                            Ok(rgb) => {
+                                let rgb = maybe_downscale(rgb, MAX_STREAM_WIDTH, MAX_STREAM_HEIGHT);
                                 let mut jpeg = Vec::new();
                                 if let Err(e) = image::codecs::jpeg::JpegEncoder::new_with_quality(
                                     &mut jpeg,
-                                    80,
+                                    JPEG_QUALITY,
                                 )
                                 .encode_image(&rgb)
                                 {
@@ -300,24 +457,87 @@ fn spawn_camera_capture(tx: broadcast::Sender<Bytes>, overlay_state: OverlayStat
     });
 }
 
-/// Update the overlay for the internal camera. Call when match is created/updated.
+/// Spawn a background task that periodically writes the overlay PNG while a match is active.
+pub fn spawn_overlay_refresh_task(db: Db) {
+    std::thread::spawn(move || {
+        let interval = std::time::Duration::from_secs(2);
+        loop {
+            std::thread::sleep(interval);
+            refresh_overlay_png_from_db(&db);
+        }
+    });
+}
+
+/// Sync overlay PNG with current match state from DB. Call before RTMP start or periodically.
+pub fn refresh_overlay_png_from_db(db: &Db) {
+    let cameras = db.list_cameras().ok().unwrap_or_default();
+    for camera in cameras {
+        if !camera.camera_type.is_internal() {
+            continue;
+        }
+        let overlay = match db.find_active_pool_match_by_camera_name(&camera.name) {
+            Ok(Some(m)) if m.end_time.is_none() => Some(MatchOverlay {
+                player_one: OverlayPlayer::from_match_player(&m.player_one),
+                player_two: OverlayPlayer::from_match_player(&m.player_two),
+            }),
+            _ => None,
+        };
+        let path = overlay_path_for_camera(&camera.name);
+        if let Some(ref o) = overlay {
+            render_overlay_to_png(o, &camera.name, &path);
+        } else {
+            clear_overlay_png(&path);
+        }
+    }
+}
+
+/// Update the overlay for the camera. Call when match is created/updated.
 /// Sets overlay to None when no active match.
-pub fn update_overlay(db: &Db, overlay_state: &OverlayState, camera_name: &str) {
-    let internal = match db.find_internal_camera() {
+/// Pass `overlay_from_match` when you have fresh match data (e.g. from score update) to avoid DB read.
+pub fn update_overlay(
+    db: &Db,
+    overlay_state: &OverlayState,
+    camera_name: &str,
+    rtmp_processes: &RtmpState,
+    overlay_from_match: Option<MatchOverlay>,
+) {
+    let camera = match db.find_camera_by_name(camera_name) {
         Ok(Some(c)) => c,
-        _ => return,
+        Ok(None) => {
+            tracing::warn!(camera = %camera_name, "Camera not found by name");
+            return;
+        }
+        Err(e) => {
+            tracing::warn!(camera = %camera_name, error = %e, "Failed to find camera");
+            return;
+        }
     };
-    if internal.name != camera_name {
+
+    if !camera.camera_type.is_internal() {
+        tracing::debug!(camera = %camera_name, "Overlay only applies to internal cameras");
         return;
     }
 
-    let overlay = match db.find_active_pool_match_by_camera_name(camera_name) {
-        Ok(Some(m)) if m.end_time.is_none() => Some(MatchOverlay {
-            player_one: OverlayPlayer::from_match_player(&m.player_one),
-            player_two: OverlayPlayer::from_match_player(&m.player_two),
-        }),
-        _ => None,
-    };
+    let overlay = overlay_from_match.or_else(|| {
+        db.find_active_pool_match_by_camera_name(camera_name)
+            .ok()
+            .flatten()
+            .filter(|m| m.end_time.is_none())
+            .map(|m| MatchOverlay {
+                player_one: OverlayPlayer::from_match_player(&m.player_one),
+                player_two: OverlayPlayer::from_match_player(&m.player_two),
+            })
+    });
+
+    let path = overlay_path_for_camera(camera_name);
+
+    if let Some(ref o) = overlay {
+        tracing::info!(camera = %camera_name, "Overlay PNG rendered");
+        render_overlay_to_png(o, camera_name, &path);
+    } else {
+        tracing::info!(camera = %camera_name, "Overlay cleared");
+        clear_overlay_png(&path);
+    }
 
     if let Ok(mut guard) = overlay_state.write() {
         let is_set = overlay.is_some();
@@ -326,19 +546,68 @@ pub fn update_overlay(db: &Db, overlay_state: &OverlayState, camera_name: &str) 
             tracing::info!(camera = %camera_name, "Overlay set for active match");
         }
     }
+
+    // Restart RTMP stream so ffmpeg picks up the new overlay (it doesn't reload the file)
+    restart_rtmp_for_camera(db, camera_name, rtmp_processes);
 }
 
 /// Clear the overlay (e.g. when match ends).
-pub fn clear_overlay(db: &Db, overlay_state: &OverlayState, camera_name: &str) {
-    let internal = match db.find_internal_camera() {
-        Ok(Some(c)) => c,
+pub fn clear_overlay(
+    db: &Db,
+    overlay_state: &OverlayState,
+    camera_name: &str,
+    rtmp_processes: &RtmpState,
+) {
+    let camera = match db.find_camera_by_name(camera_name) {
+        Ok(Some(c)) if c.camera_type.is_internal() => c,
         _ => return,
     };
-    if internal.name != camera_name {
-        return;
-    }
+    clear_overlay_png(&overlay_path_for_camera(&camera.name));
     if let Ok(mut guard) = overlay_state.write() {
         *guard = None;
+    }
+    restart_rtmp_for_camera(db, camera_name, rtmp_processes);
+}
+
+/// Restart active RTMP stream for camera so ffmpeg picks up overlay changes.
+fn restart_rtmp_for_camera(db: &Db, camera_name: &str, rtmp_processes: &RtmpState) {
+    let camera = match db.find_camera_by_name(camera_name) {
+        Ok(Some(c)) if c.camera_type.is_internal() => c,
+        _ => return,
+    };
+    let camera_id = match camera.id {
+        Some(id) => id.to_hex(),
+        None => return,
+    };
+
+    let (stop_tx, rtmp_url) = match rtmp_processes.write().unwrap().remove(&camera_id) {
+        Some((tx, url)) => (tx, url),
+        None => return,
+    };
+
+    let _ = stop_tx.send(());
+    std::thread::sleep(std::time::Duration::from_secs(2));
+
+    let port = std::env::var("PORT").unwrap_or_else(|_| "8080".to_string());
+    let stream_url = format!("http://127.0.0.1:{}/api/cameras/{}/stream", port, camera_id);
+    let (stop_tx_new, stop_rx) = std::sync::mpsc::channel();
+    let rtmp = rtmp_processes.clone();
+    let overlay_path = overlay_path_for_camera(camera_name);
+
+    if spawn_rtmp_pipeline(
+        &stream_url,
+        &rtmp_url,
+        stop_rx,
+        rtmp.clone(),
+        camera_id.clone(),
+        &overlay_path,
+    )
+    .is_ok()
+    {
+        rtmp.write()
+            .unwrap()
+            .insert(camera_id, (stop_tx_new, rtmp_url));
+        tracing::info!(camera = %camera_name, "RTMP stream restarted for overlay update");
     }
 }
 
@@ -410,85 +679,161 @@ pub async fn camera_stream(
     Ok(response)
 }
 
-/// Spawn a GStreamer pipeline that reads MJPEG from stream_url and pushes to rtmp_url.
+/// Spawn an ffmpeg process that reads MJPEG from stream_url and pushes to rtmp_url.
+/// Overlays the PNG at data/rtmp-overlay.png (written when match overlay changes).
 /// Runs in a thread; stops when stop_rx receives. Removes from rtmp_processes when done.
+/// Requires ffmpeg to be installed (with libx264 and AAC support).
 fn spawn_rtmp_pipeline(
     stream_url: &str,
     rtmp_url: &str,
     stop_rx: std::sync::mpsc::Receiver<()>,
     rtmp: RtmpState,
     id: String,
+    overlay_path: &std::path::Path,
 ) -> Result<(), String> {
-    use gstreamer::prelude::*;
+    if !overlay_path.exists() {
+        clear_overlay_png(overlay_path);
+    }
+    if !overlay_path.exists() {
+        return Err(format!(
+            "Overlay PNG not found at {}. Ensure data/ directory exists.",
+            overlay_path.display()
+        ));
+    }
 
-    let pipeline_desc = format!(
-        "audiotestsrc wave=4 ! audioconvert ! audioresample ! voaacenc bitrate=128000 ! \
-         aacparse ! queue ! mux. \
-         souphttpsrc location=\"{}\" do-timestamp=true ! multipartdemux ! jpegdec ! \
-         videoconvert ! x264enc tune=zerolatency speed-preset=1 key-int-max=60 ! \
-         h264parse ! queue ! mux. \
-         flvmux streamable=true name=mux ! rtmpsink location=\"{}\"",
-        stream_url.replace('"', "\\\""),
-        rtmp_url.replace('"', "\\\"")
-    );
+    let overlay_path_str = overlay_path
+        .canonicalize()
+        .or_else(|_| std::env::current_dir().map(|cwd| cwd.join(overlay_path)))
+        .map_err(|e| format!("Overlay path error: {}", e))?
+        .to_string_lossy()
+        .into_owned();
 
-    let pipeline = gstreamer::parse::launch(&pipeline_desc)
-        .map_err(|e| format!("Pipeline parse error: {}", e))?;
+    tracing::info!(overlay_path = %overlay_path_str, "RTMP: ffmpeg overlay PNG");
 
-    let pipeline = pipeline
-        .downcast::<gstreamer::Pipeline>()
-        .map_err(|_| "Expected Pipeline element")?;
+    // Facebook Live: H.264 baseline, AAC 48kHz stereo 128kbps CBR, keyframes every 2s, ~2Mbps video.
+    let mut child = std::process::Command::new("ffmpeg")
+        .args([
+            "-y",
+            // ========== AUDIO SOURCE ==========
+            "-f",
+            "lavfi",
+            "-i",
+            "anullsrc=channel_layout=stereo:sample_rate=48000",
+            // ========== VIDEO INPUT (MJPEG) ==========
+            "-f",
+            "mjpeg",
+            "-r",
+            "30",
+            "-i",
+            stream_url,
+            // ========== OVERLAY PNG ==========
+            "-f",
+            "image2",
+            "-loop",
+            "1",
+            "-i",
+            &overlay_path_str,
+            // ========== FILTER GRAPH ==========
+            "-filter_complex",
+            "[1:v]fps=30[main];[main][2:v]overlay=0:H-80,format=yuv420p[out]",
+            "-map",
+            "[out]",
+            "-map",
+            "0:a",
+            // ========== VIDEO ENCODER ==========
+            "-c:v",
+            "libx264",
+            "-preset",
+            "veryfast",
+            "-tune",
+            "zerolatency",
+            "-profile:v",
+            "high",
+            "-level",
+            "4.1",
+            "-pix_fmt",
+            "yuv420p",
+            "-b:v",
+            "2000k",
+            "-maxrate",
+            "2000k",
+            "-bufsize",
+            "4000k",
+            "-g",
+            "60", // 30fps * 2s
+            "-keyint_min",
+            "60",
+            "-x264-params",
+            "scenecut=0:open_gop=0:min-keyint=60",
+            "-bf",
+            "2", // stable B-frames
+            "-fps_mode",
+            "cfr",
+            // ========== AUDIO ENCODER ==========
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-ar",
+            "48000",
+            "-ac",
+            "2",
+            // ========== MUX ==========
+            "-f",
+            "flv",
+            rtmp_url,
+        ])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to spawn ffmpeg: {}. Ensure ffmpeg is installed.", e))?;
 
-    let bus = pipeline.bus().expect("Pipeline has bus");
-
-    pipeline
-        .set_state(gstreamer::State::Playing)
-        .map_err(|e| format!("Failed to set pipeline to Playing: {}", e))?;
+    let stderr = child.stderr.take();
+    let stderr_done: Arc<std::sync::Mutex<Option<String>>> = Arc::new(std::sync::Mutex::new(None));
+    let stderr_done_clone = stderr_done.clone();
+    std::thread::spawn(move || {
+        if let Some(mut stderr) = stderr {
+            let mut buf = Vec::new();
+            let _ = std::io::Read::read_to_end(&mut stderr, &mut buf);
+            if !buf.is_empty() {
+                let s = String::from_utf8_lossy(&buf).into_owned();
+                *stderr_done_clone.lock().unwrap() = Some(s);
+            }
+        }
+    });
 
     std::thread::spawn(move || {
-        let _pipeline = pipeline;
         loop {
             match stop_rx.recv_timeout(std::time::Duration::from_millis(100)) {
                 Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             }
 
-            if let Some(msg) = bus.timed_pop(gstreamer::ClockTime::from_mseconds(100)) {
-                use gstreamer::MessageView;
-                match msg.view() {
-                    MessageView::Eos(..) => break,
-                    MessageView::Error(err) => {
-                        tracing::error!(
-                            camera_id = %id,
-                            "GStreamer error: {} (debug: {:?})",
-                            err.error(),
-                            err.debug()
-                        );
-                        break;
+            if child.try_wait().ok().flatten().is_some() {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+                if let Ok(guard) = stderr_done.lock() {
+                    if let Some(ref s) = *guard {
+                        tracing::error!(camera_id = %id, "RTMP: ffmpeg exited unexpectedly:\n{}", s);
+                    } else {
+                        tracing::warn!(camera_id = %id, "RTMP: ffmpeg process exited unexpectedly");
                     }
-                    MessageView::Warning(warn) => {
-                        tracing::warn!(
-                            camera_id = %id,
-                            "GStreamer warning: {}",
-                            warn.error()
-                        );
-                    }
-                    _ => {}
                 }
+                break;
             }
         }
 
-        let _ = _pipeline.set_state(gstreamer::State::Null);
+        let _ = child.kill();
+        let _ = child.wait();
         rtmp.write().unwrap().remove(&id);
-        tracing::info!(camera_id = %id, "RTMP: GStreamer pipeline ended");
+        tracing::info!(camera_id = %id, "RTMP: ffmpeg pipeline ended");
     });
 
     Ok(())
 }
 
 /// POST /api/cameras/:id/stream/rtmp - Start RTMP push to the given URL.
-/// Spawns GStreamer to read the MJPEG stream and push to RTMP (e.g. YouTube Live, Facebook).
-/// Requires GStreamer (gst-plugins-good, gst-plugins-bad, gst-plugins-ugly) to be installed.
+/// Spawns ffmpeg to read the MJPEG stream and push to RTMP (e.g. YouTube Live, Facebook).
+/// Requires ffmpeg to be installed (with libx264 and AAC support).
 /// The overlay is burned into the stream.
 pub async fn camera_stream_rtmp_start(
     State(app): State<crate::api::AppState>,
@@ -516,9 +861,7 @@ pub async fn camera_stream_rtmp_start(
         ));
     }
 
-    if req.url.is_empty()
-        || (!req.url.starts_with("rtmp://") && !req.url.starts_with("rtmps://"))
-    {
+    if req.url.is_empty() || (!req.url.starts_with("rtmp://") && !req.url.starts_with("rtmps://")) {
         tracing::warn!(url = %req.url, "RTMP start: invalid URL");
         return Err(ApiError::BadRequest(
             "url must be a valid RTMP URL (e.g. rtmp://... or rtmps://...)".to_string(),
@@ -526,31 +869,44 @@ pub async fn camera_stream_rtmp_start(
     }
 
     // Stop any existing stream for this camera before starting a new one.
-    if let Some(stop_tx) = app.rtmp_processes.write().unwrap().remove(&id) {
+    if let Some((stop_tx, _)) = app.rtmp_processes.write().unwrap().remove(&id) {
         tracing::info!("RTMP start: stopping existing stream first");
         let _ = stop_tx.send(());
         std::thread::sleep(std::time::Duration::from_secs(2));
     }
 
+    // Ensure overlay PNG reflects current match state before ffmpeg reads it
+    refresh_overlay_png_from_db(&app.db);
+
     let port = std::env::var("PORT").unwrap_or_else(|_| "8080".to_string());
     let stream_url = format!("http://127.0.0.1:{}/api/cameras/{}/stream", port, id);
-    tracing::info!(stream_url = %stream_url, "RTMP start: starting GStreamer pipeline");
+    tracing::info!(stream_url = %stream_url, "RTMP start: starting ffmpeg pipeline");
 
+    let overlay_path = overlay_path_for_camera(&camera.name);
     let (stop_tx, stop_rx) = std::sync::mpsc::channel();
     let rtmp = app.rtmp_processes.clone();
     let id_clone = id.clone();
     let rtmp_url = req.url.clone();
 
-    match spawn_rtmp_pipeline(&stream_url, &rtmp_url, stop_rx, rtmp.clone(), id_clone) {
+    match spawn_rtmp_pipeline(
+        &stream_url,
+        &rtmp_url,
+        stop_rx,
+        rtmp.clone(),
+        id_clone,
+        &overlay_path,
+    ) {
         Ok(()) => {
-            rtmp.write().unwrap().insert(id, stop_tx);
-            tracing::info!("RTMP start: GStreamer pipeline started successfully");
-            Ok(axum::Json(serde_json::json!({ "ok": true, "message": "RTMP stream started" })))
+            rtmp.write().unwrap().insert(id, (stop_tx, rtmp_url));
+            tracing::info!("RTMP start: ffmpeg pipeline started successfully");
+            Ok(axum::Json(
+                serde_json::json!({ "ok": true, "message": "RTMP stream started" }),
+            ))
         }
         Err(e) => {
-            tracing::error!(error = %e, "RTMP start: failed to start GStreamer pipeline");
+            tracing::error!(error = %e, "RTMP start: failed to start ffmpeg pipeline");
             Err(ApiError::BadRequest(format!(
-                "Failed to start GStreamer pipeline: {}. Ensure GStreamer and plugins are installed (gst-plugins-good, gst-plugins-bad, gst-plugins-ugly).",
+                "Failed to start ffmpeg pipeline: {}. Ensure ffmpeg is installed.",
                 e
             )))
         }
@@ -567,19 +923,23 @@ pub async fn camera_stream_rtmp_stop(
     State(app): State<crate::api::AppState>,
     Path(id): Path<String>,
 ) -> Result<axum::Json<serde_json::Value>, ApiError> {
-    let stop_tx = app
+    let (stop_tx, _) = app
         .rtmp_processes
         .write()
         .unwrap()
         .remove(&id)
-        .ok_or_else(|| ApiError::BadRequest("No active RTMP stream for this camera.".to_string()))?;
+        .ok_or_else(|| {
+            ApiError::BadRequest("No active RTMP stream for this camera.".to_string())
+        })?;
 
     if stop_tx.send(()).is_err() {
         tracing::warn!(camera_id = %id, "RTMP stop: pipeline thread already ended");
     }
 
     tracing::info!(camera_id = %id, "RTMP stop: stream stopped");
-    Ok(axum::Json(serde_json::json!({ "ok": true, "message": "RTMP stream stopped" })))
+    Ok(axum::Json(
+        serde_json::json!({ "ok": true, "message": "RTMP stream stopped" }),
+    ))
 }
 
 /// GET /api/cameras/:id/stream/rtmp/status - Check if RTMP stream is active.

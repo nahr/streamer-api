@@ -23,15 +23,17 @@ pub struct AppState {
 impl ApiServer {
     fn router(db: Db) -> Router {
         let overlay: OverlayState = Arc::new(RwLock::new(None));
-        if db.find_internal_camera().ok().flatten().is_some() {
+        let rtmp_processes = crate::video::rtmp_state_new();
+        if db.list_cameras().map_or(false, |cams| cams.iter().any(|c| c.camera_type.is_internal())) {
             video::ensure_internal_camera_ready(overlay.clone());
-            video::restore_overlay_from_db(&db, &overlay);
+            video::restore_overlay_from_db(&db, &overlay, &rtmp_processes);
+            video::spawn_overlay_refresh_task(db.clone());
         }
         let app_state = AppState {
             db: db.clone(),
             overlay: overlay.clone(),
             facebook_tokens: facebook::FacebookTokenCache::new(),
-            rtmp_processes: crate::video::rtmp_state_new(),
+            rtmp_processes,
         };
 
         let mut app = Router::new()
@@ -59,15 +61,6 @@ impl ApiServer {
         let port = std::env::var("PORT").unwrap_or_else(|_| "8080".to_string());
         let addr: std::net::SocketAddr = format!("0.0.0.0:{}", port).parse()?;
         tracing::info!("starting api server");
-        if let Err(e) = gstreamer::init() {
-            tracing::warn!(
-                error = %e,
-                "GStreamer init failed. RTMP streaming will not work. \
-                Install GStreamer: brew install gstreamer gst-plugins-base gst-plugins-good gst-plugins-bad gst-plugins-ugly"
-            );
-        } else {
-            tracing::info!("GStreamer initialized for RTMP streaming");
-        }
         let listener = tokio::net::TcpListener::bind(addr).await?;
         axum::serve(listener, app).await?;
         Ok(())

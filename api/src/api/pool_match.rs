@@ -196,7 +196,7 @@ pub async fn pool_matches_create(
     };
 
     let id = app.db.create_pool_match(match_data)?;
-    video::update_overlay(&app.db, &app.overlay, &camera_name);
+    video::update_overlay(&app.db, &app.overlay, &camera_name, &app.rtmp_processes, None);
     Ok(Json(serde_json::json!({ "id": id.to_hex() })))
 }
 
@@ -210,9 +210,18 @@ pub async fn pool_matches_update_score(
         ObjectId::parse_str(&id).map_err(|_| ApiError::BadRequest("Invalid pool match id".to_string()))?;
     let updated = app.db.update_pool_match_games_won(&oid, req.player, req.games_won)?;
     if updated.end_time.is_some() {
-        video::clear_overlay(&app.db, &app.overlay, &updated.camera_name);
+        video::clear_overlay(&app.db, &app.overlay, &updated.camera_name, &app.rtmp_processes);
     } else {
-        video::update_overlay(&app.db, &app.overlay, &updated.camera_name);
+        video::update_overlay(
+            &app.db,
+            &app.overlay,
+            &updated.camera_name,
+            &app.rtmp_processes,
+            Some(video::MatchOverlay {
+                player_one: video::OverlayPlayer::from_match_player(&updated.player_one),
+                player_two: video::OverlayPlayer::from_match_player(&updated.player_two),
+            }),
+        );
     }
     PoolMatchResponse::from_doc(updated)
         .ok_or(ApiError::PoolMatchNotFound)
@@ -231,7 +240,7 @@ pub async fn pool_matches_end(
         .map(|m| m.camera_name)
         .unwrap_or_default();
     let updated = app.db.end_pool_match(&oid)?;
-    video::clear_overlay(&app.db, &app.overlay, &camera_name);
+    video::clear_overlay(&app.db, &app.overlay, &camera_name, &app.rtmp_processes);
     PoolMatchResponse::from_doc(updated)
         .ok_or(ApiError::PoolMatchNotFound)
         .map(Json)
@@ -252,7 +261,7 @@ pub async fn pool_matches_delete(
     if !deleted {
         return Err(ApiError::PoolMatchNotFound);
     }
-    video::clear_overlay(&app.db, &app.overlay, &camera_name);
+    video::clear_overlay(&app.db, &app.overlay, &camera_name, &app.rtmp_processes);
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 

@@ -21,8 +21,6 @@ RUN npm run build
 # =============================================================================
 FROM rust:1-bookworm AS api-deps
 RUN apt-get update && apt-get install -y libclang-dev clang \
-    libgstreamer1.0-dev libgstreamer-plugins-base1.0-dev \
-    gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app/api
@@ -45,8 +43,7 @@ RUN cargo build --release
 # Build targets: ui-builder | api-deps | api-builder | table-tv (default)
 # =============================================================================
 FROM debian:bookworm-slim AS table-tv
-RUN apt-get update && apt-get install -y ca-certificates avahi-daemon avahi-utils dumb-init \
-    libgstreamer1.0-0 gstreamer1.0-plugins-base gstreamer1.0-plugins-good gstreamer1.0-plugins-bad gstreamer1.0-plugins-ugly \
+RUN apt-get update && apt-get install -y ca-certificates p11-kit avahi-daemon avahi-utils dumb-init ffmpeg \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 

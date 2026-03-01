@@ -42,6 +42,12 @@ impl Db {
         Ok(collection.find_one(doc! { "_id": id })?)
     }
 
+    /// Find camera by name.
+    pub fn find_camera_by_name(&self, name: &str) -> Result<Option<CameraDoc>, ApiError> {
+        let collection = self.0.collection::<CameraDoc>(CAMERAS_COLLECTION);
+        Ok(collection.find_one(doc! { "name": name })?)
+    }
+
     /// Find the internal camera, if one exists.
     pub fn find_internal_camera(&self) -> Result<Option<CameraDoc>, ApiError> {
         let collection = self.0.collection::<CameraDoc>(CAMERAS_COLLECTION);
