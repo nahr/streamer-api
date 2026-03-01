@@ -81,6 +81,9 @@ pub struct PoolMatchResponse {
     /// Display name of the user who started the match.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub started_by: Option<String>,
+    /// Match description (supports newlines), used in live video post.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 impl PoolMatchResponse {
@@ -94,6 +97,7 @@ impl PoolMatchResponse {
             camera_id: doc.camera_id.to_hex(),
             camera_name,
             started_by: doc.started_by_name,
+            description: doc.description,
         })
     }
 }
@@ -110,6 +114,8 @@ pub struct PoolMatchCreateRequest {
     pub player_one: MatchPlayerCreateDto,
     pub player_two: MatchPlayerCreateDto,
     pub camera_id: String,
+    /// Optional match description (supports newlines), included in live video post.
+    pub description: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -231,6 +237,7 @@ pub async fn pool_matches_create(
         camera_id: camera_oid,
         started_by_sub: Some(auth.sub),
         started_by_name: Some(auth.name),
+        description: req.description.filter(|s| !s.trim().is_empty()),
     };
 
     let id = app.db.create_pool_match(match_data)?;

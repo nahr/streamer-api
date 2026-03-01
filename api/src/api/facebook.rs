@@ -245,6 +245,8 @@ pub async fn facebook_status(
 pub struct FacebookLiveUrlRequest {
     pub title: Option<String>,
     pub description: Option<String>,
+    /// Privacy: EVERYONE, ALL_FRIENDS, FRIENDS_OF_FRIENDS, SELF. Defaults to EVERYONE.
+    pub privacy: Option<String>,
     /// One-time auth key from OAuth callback (required).
     pub auth_key: Option<String>,
 }
@@ -285,13 +287,21 @@ pub async fn facebook_live_url(
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| "Table TV Live".to_string());
     let description = req.description.unwrap_or_default();
+    let privacy_value = req
+        .privacy
+        .as_deref()
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("EVERYONE");
+    let privacy = format!(r#"{{"value":"{}"}}"#, privacy_value);
 
     let url = format!(
-        "{}/{}/live_videos?status=LIVE_NOW&title={}&description={}&access_token={}",
+        "{}/{}/live_videos?status=LIVE_NOW&title={}&description={}&privacy={}&access_token={}",
         GRAPH_API_BASE,
         target_id,
         urlencoding::encode(&title),
         urlencoding::encode(&description),
+        urlencoding::encode(&privacy),
         token.trim()
     );
 

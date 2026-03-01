@@ -149,7 +149,7 @@ export async function getFacebookStatus() {
 /**
  * Get RTMP URL from Facebook Live API. Creates a new live video and returns the stream URL.
  * Requires auth_key from OAuth callback.
- * @param {{ title?: string, description?: string, auth_key?: string }} [options]
+ * @param {{ title?: string, description?: string, privacy?: string, auth_key?: string }} [options]
  * @returns {Promise<{ url: string, live_video_id?: string }>}
  */
 export async function getFacebookLiveUrl(options = {}) {

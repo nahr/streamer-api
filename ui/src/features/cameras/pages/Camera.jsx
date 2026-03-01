@@ -68,6 +68,7 @@ export function Camera() {
     playerTwoRating: '',
     playerOneRatingType: 'Fargo',
     playerTwoRatingType: 'Fargo',
+    matchDescription: '',
   })
   const [startError, setStartError] = useState('')
   const [scoreUpdating, setScoreUpdating] = useState(false)
@@ -78,6 +79,7 @@ export function Camera() {
   const [rtmpActive, setRtmpActive] = useState(false)
   const [rtmpStopping, setRtmpStopping] = useState(false)
   const [facebookConfigured, setFacebookConfigured] = useState(false)
+  const [goLivePrivacy, setGoLivePrivacy] = useState('EVERYONE')
   const [streamUrl, setStreamUrl] = useState('')
   const [streamError, setStreamError] = useState(false)
 
@@ -131,6 +133,13 @@ export function Camera() {
     if (camera?.id) fetchActiveMatch()
   }, [camera?.id, fetchActiveMatch])
 
+  useEffect(() => {
+    if (!camera) return
+    const title = locationName ? `${locationName} – ${camera.name}` : camera.name
+    document.title = `${title} | Table TV`
+    return () => { document.title = 'Table TV' }
+  }, [camera, locationName])
+
   const fetchRtmpStatus = useCallback(async () => {
     if (!camera?.id) return
     const camType = parseCameraType(camera?.camera_type).type
@@ -167,7 +176,7 @@ export function Camera() {
   }, [])
 
   const handleStartMatch = async () => {
-    const { playerOneName, playerTwoName, playerOneRaceTo, playerTwoRaceTo, playerOneRating, playerTwoRating, playerOneRatingType, playerTwoRatingType } = startForm
+    const { playerOneName, playerTwoName, playerOneRaceTo, playerTwoRaceTo, playerOneRating, playerTwoRating, playerOneRatingType, playerTwoRatingType, matchDescription } = startForm
     if (!playerOneName.trim() || !playerTwoName.trim()) {
       setStartError('Both player names are required')
       return
@@ -198,9 +207,10 @@ export function Camera() {
           ...(r2 != null && { rating: { type: playerTwoRatingType, value: r2 } }),
         },
         camera_id: camera.id,
+        ...(matchDescription.trim() && { description: matchDescription.trim() }),
       })
       setStartDialogOpen(false)
-      setStartForm({ playerOneName: '', playerTwoName: '', playerOneRaceTo: 5, playerTwoRaceTo: 5, playerOneRating: '', playerTwoRating: '', playerOneRatingType: 'Fargo', playerTwoRatingType: 'Fargo' })
+      setStartForm({ playerOneName: '', playerTwoName: '', playerOneRaceTo: 5, playerTwoRaceTo: 5, playerOneRating: '', playerTwoRating: '', playerOneRatingType: 'Fargo', playerTwoRatingType: 'Fargo', matchDescription: '' })
       await fetchActiveMatch()
     } catch (err) {
       setStartError(err.message)
@@ -245,10 +255,10 @@ export function Camera() {
     setRtmpError('')
     setRtmpStarting(true)
     try {
-        await startRtmpStream(camera.id, url)
-        setRtmpActive(true)
-        setRtmpDialogOpen(false)
-        setRtmpUrl('')
+      await startRtmpStream(camera.id, url)
+      setRtmpActive(true)
+      setRtmpDialogOpen(false)
+      setRtmpUrl('')
     } catch (err) {
       setRtmpError(err.message)
     } finally {
@@ -257,6 +267,7 @@ export function Camera() {
   }
 
   const handleGoLiveFacebook = () => {
+    sessionStorage.setItem('table-tv-go-live-privacy', goLivePrivacy)
     const returnTo = `/camera/${id}`
     window.location.href = `/api/facebook/auth?return_to=${encodeURIComponent(returnTo)}`
   }
@@ -267,11 +278,30 @@ export function Camera() {
       setRtmpError('')
       setRtmpStarting(true)
       try {
+        const prefix = locationName ? `${locationName} - ${camera.name}` : camera.name
         const title = activeMatch
-          ? `${activeMatch.player_one.name} vs ${activeMatch.player_two.name}`
-          : `${camera.name} - Table TV`
-        console.log('[Camera] Fetching Facebook live URL...', { title })
-        const { url } = await getFacebookLiveUrl({ title, auth_key: authKey })
+          ? `${prefix}: ${activeMatch.player_one.name} vs ${activeMatch.player_two.name}`
+          : `${prefix} - Table TV`
+        const formatRating = (p) => p.rating ? `${p.rating.type} ${p.rating.value}` : null
+        const p1Part = activeMatch
+          ? (formatRating(activeMatch.player_one)
+            ? `${activeMatch.player_one.name} (${formatRating(activeMatch.player_one)})`
+            : activeMatch.player_one.name)
+          : null
+        const p2Part = activeMatch
+          ? (formatRating(activeMatch.player_two)
+            ? `${activeMatch.player_two.name} (${formatRating(activeMatch.player_two)})`
+            : activeMatch.player_two.name)
+          : null
+        const headerLine = activeMatch && p1Part && p2Part ? `${p1Part} vs ${p2Part}` : null
+        const desc = activeMatch?.description?.trim()
+        const description = headerLine
+          ? (desc ? `${headerLine}\n${desc}` : headerLine)
+          : undefined
+        const privacy = sessionStorage.getItem('table-tv-go-live-privacy') || 'EVERYONE'
+        sessionStorage.removeItem('table-tv-go-live-privacy')
+        console.log('[Camera] Fetching Facebook live URL...', { title, hasDescription: !!description, privacy })
+        const { url } = await getFacebookLiveUrl({ title, description, privacy, auth_key: authKey })
         console.log('[Camera] Got stream URL, starting RTMP...', { urlPrefix: url.slice(0, 50) })
         await startRtmpStream(camera.id, url)
         console.log('[Camera] RTMP stream started successfully')
@@ -285,19 +315,19 @@ export function Camera() {
         setRtmpStarting(false)
       }
     },
-    [camera?.id, activeMatch]
+    [camera?.id, activeMatch, locationName]
   )
 
   useEffect(() => {
     const authKey = searchParams.get('auth_key')
-    if (!authKey || !id || !camera?.id) return
-    console.log('[Camera] Got auth_key from URL, starting Facebook live flow', { cameraId: camera?.id })
+    if (!authKey || !id || !camera?.id || matchLoading) return
+    console.log('[Camera] Got auth_key from URL, starting Facebook live flow', { cameraId: camera?.id, hasActiveMatch: !!activeMatch })
     setSearchParams({}, { replace: true })
     setRtmpDialogOpen(true)
     runFacebookLiveWithAuthKey(authKey)
-  }, [searchParams, id, camera?.id, setSearchParams, runFacebookLiveWithAuthKey])
+  }, [searchParams, id, camera?.id, matchLoading, activeMatch, setSearchParams, runFacebookLiveWithAuthKey])
 
-  
+
   const handleStopRtmp = async () => {
     if (!camera?.id || rtmpStopping) return
     setRtmpStopping(true)
@@ -353,7 +383,7 @@ export function Camera() {
       <Paper sx={{ p: 3 }}>
         <Box display="flex" alignItems="center" gap={2} sx={{ mb: 2 }}>
           <Typography variant="h4" component="h1">
-            {camera.name}
+            {locationName ? `${locationName} – ${camera.name}` : camera.name}
           </Typography>
           <Chip label={label} size="small" />
         </Box>
@@ -365,12 +395,12 @@ export function Camera() {
         {hasStream && (
           <Box sx={{ mt: 2, position: 'relative', display: 'inline-block' }}>
             <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
-            <Button
-              startIcon={<LiveTvIcon />}
-              variant="outlined"
-              onClick={() => { fetchRtmpStatus(); setRtmpDialogOpen(true) }}
-              disabled={rtmpActive}
-            >
+              <Button
+                startIcon={<LiveTvIcon />}
+                variant="outlined"
+                onClick={() => { fetchRtmpStatus(); setRtmpDialogOpen(true) }}
+                disabled={rtmpActive}
+              >
                 Go Live (RTMP)
               </Button>
               {rtmpActive && (
@@ -454,136 +484,136 @@ export function Camera() {
                 </Box>
               ) : (
                 <>
-              <img
-                src={streamUrl}
-                alt={`${camera.name} live stream`}
-                onError={() => setStreamError(true)}
-                style={{
-                  width: '100%',
-                  maxWidth: 640,
-                  borderRadius: 8,
-                  backgroundColor: '#000',
-                  display: 'block',
-                }}
-              />
-              <Box
-                sx={{
-                  position: 'absolute',
-                  top: 8,
-                  left: 8,
-                  background: 'rgba(0,0,0,0.7)',
-                  color: '#fff',
-                  px: 1.5,
-                  py: 1,
-                  borderRadius: 1,
-                  fontSize: '0.875rem',
-                }}
-              >
-                {locationName && (
-                  <Box component="div" sx={{ fontWeight: 600, mb: 0.25 }}>
-                    {locationName}
-                  </Box>
-                )}
-                <Box component="div" sx={{ fontSize: '0.75rem', opacity: 0.9 }}>
-                  {camera.name}
-                </Box>
-              </Box>
-              <Box
-                sx={{
-                  position: 'absolute',
-                  top: 8,
-                  right: 8,
-                  background: 'rgba(0,0,0,0.7)',
-                  color: '#fff',
-                  px: 1.5,
-                  py: 1,
-                  borderRadius: 1,
-                  fontSize: '0.875rem',
-                  fontVariantNumeric: 'tabular-nums',
-                }}
-              >
-                <LiveTimestamp />
-              </Box>
-            {activeMatch && !activeMatch.end_time && (
-              <Box
-                sx={{
-                  position: 'absolute',
-                  bottom: 0,
-                  left: 0,
-                  right: 0,
-                  background: 'rgba(0,0,0,0.9)',
-                  color: '#fff',
-                  py: 1.25,
-                  px: 2,
-                  borderRadius: '0 0 8px 8px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  gap: 2,
-                }}
-              >
-                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', minWidth: 0, flex: 1 }}>
-                  <Typography variant="subtitle2" fontWeight={600} noWrap sx={{ maxWidth: '100%' }}>
-                    {activeMatch.player_one.name}
-                  </Typography>
-                  {activeMatch.player_one.rating && (
-                    <Typography variant="caption" color="rgba(255,255,255,0.8)">
-                      {activeMatch.player_one.rating.type} {activeMatch.player_one.rating.value}
-                    </Typography>
-                  )}
-                </Box>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexShrink: 0 }}>
+                  <img
+                    src={streamUrl}
+                    alt={`${camera.name} live stream`}
+                    onError={() => setStreamError(true)}
+                    style={{
+                      width: '100%',
+                      maxWidth: 640,
+                      borderRadius: 8,
+                      backgroundColor: '#000',
+                      display: 'block',
+                    }}
+                  />
                   <Box
                     sx={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      minWidth: 32,
-                      height: 32,
-                      borderRadius: '50%',
-                      border: '2px solid #fff',
+                      position: 'absolute',
+                      top: 8,
+                      left: 8,
+                      background: 'rgba(0,0,0,0.7)',
+                      color: '#fff',
+                      px: 1.5,
+                      py: 1,
+                      borderRadius: 1,
+                      fontSize: '0.875rem',
                     }}
                   >
-                    <Typography variant="subtitle1" fontWeight={700}>
-                      {activeMatch.player_one.games_won}
-                    </Typography>
-                  </Box>
-                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
-                    <Typography variant="caption" color="rgba(255,255,255,0.8)">
-                      race to
-                    </Typography>
-                    <Typography variant="caption" color="rgba(255,255,255,0.8)">
-                      {activeMatch.player_one.race_to}/{activeMatch.player_two.race_to}
-                    </Typography>
+                    {locationName && (
+                      <Box component="div" sx={{ fontWeight: 600, mb: 0.25 }}>
+                        {locationName}
+                      </Box>
+                    )}
+                    <Box component="div" sx={{ fontSize: '0.75rem', opacity: 0.9 }}>
+                      {camera.name}
+                    </Box>
                   </Box>
                   <Box
                     sx={{
-                      display: 'inline-flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      minWidth: 32,
-                      height: 32,
-                      borderRadius: '50%',
-                      border: '2px solid #fff',
+                      position: 'absolute',
+                      top: 8,
+                      right: 8,
+                      background: 'rgba(0,0,0,0.7)',
+                      color: '#fff',
+                      px: 1.5,
+                      py: 1,
+                      borderRadius: 1,
+                      fontSize: '0.875rem',
+                      fontVariantNumeric: 'tabular-nums',
                     }}
                   >
-                    <Typography variant="subtitle1" fontWeight={700}>
-                      {activeMatch.player_two.games_won}
-                    </Typography>
+                    <LiveTimestamp />
                   </Box>
-                </Box>
-                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', minWidth: 0, flex: 1 }}>
-                  <Typography variant="subtitle2" fontWeight={600} noWrap sx={{ maxWidth: '100%' }}>
-                    {activeMatch.player_two.name}
-                  </Typography>
-                  {activeMatch.player_two.rating && (
-                    <Typography variant="caption" color="rgba(255,255,255,0.8)">
-                      {activeMatch.player_two.rating.type} {activeMatch.player_two.rating.value}
-                    </Typography>
+                  {activeMatch && !activeMatch.end_time && (
+                    <Box
+                      sx={{
+                        position: 'absolute',
+                        bottom: 0,
+                        left: 0,
+                        right: 0,
+                        background: 'rgba(0,0,0,0.9)',
+                        color: '#fff',
+                        py: 1.25,
+                        px: 2,
+                        borderRadius: '0 0 8px 8px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 2,
+                      }}
+                    >
+                      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', minWidth: 0, flex: 1 }}>
+                        <Typography variant="subtitle2" fontWeight={600} noWrap sx={{ maxWidth: '100%' }}>
+                          {activeMatch.player_one.name}
+                        </Typography>
+                        {activeMatch.player_one.rating && (
+                          <Typography variant="caption" color="rgba(255,255,255,0.8)">
+                            {activeMatch.player_one.rating.type} {activeMatch.player_one.rating.value}
+                          </Typography>
+                        )}
+                      </Box>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexShrink: 0 }}>
+                        <Box
+                          sx={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            minWidth: 32,
+                            height: 32,
+                            borderRadius: '50%',
+                            border: '2px solid #fff',
+                          }}
+                        >
+                          <Typography variant="subtitle1" fontWeight={700}>
+                            {activeMatch.player_one.games_won}
+                          </Typography>
+                        </Box>
+                        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
+                          <Typography variant="caption" color="rgba(255,255,255,0.8)">
+                            race to
+                          </Typography>
+                          <Typography variant="caption" color="rgba(255,255,255,0.8)">
+                            {activeMatch.player_one.race_to}/{activeMatch.player_two.race_to}
+                          </Typography>
+                        </Box>
+                        <Box
+                          sx={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            minWidth: 32,
+                            height: 32,
+                            borderRadius: '50%',
+                            border: '2px solid #fff',
+                          }}
+                        >
+                          <Typography variant="subtitle1" fontWeight={700}>
+                            {activeMatch.player_two.games_won}
+                          </Typography>
+                        </Box>
+                      </Box>
+                      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', minWidth: 0, flex: 1 }}>
+                        <Typography variant="subtitle2" fontWeight={600} noWrap sx={{ maxWidth: '100%' }}>
+                          {activeMatch.player_two.name}
+                        </Typography>
+                        {activeMatch.player_two.rating && (
+                          <Typography variant="caption" color="rgba(255,255,255,0.8)">
+                            {activeMatch.player_two.rating.type} {activeMatch.player_two.rating.value}
+                          </Typography>
+                        )}
+                      </Box>
+                    </Box>
                   )}
-                </Box>
-              </Box>
-            )}
                 </>
               )}
             </Box>
@@ -605,6 +635,13 @@ export function Camera() {
             <CircularProgress size={24} />
           ) : activeMatch ? (
             <Stack spacing={2}>
+              {activeMatch.description?.trim() && (
+                <Box sx={{ py: 1, px: 2, bgcolor: 'action.hover', borderRadius: 1 }}>
+                  <Typography variant="body2" sx={{ whiteSpace: 'pre-wrap' }}>
+                    {activeMatch.description.trim()}
+                  </Typography>
+                </Box>
+              )}
               <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center" flexWrap="wrap">
                 <Box display="flex" alignItems="center" gap={0.5}>
                   <IconButton
@@ -710,6 +747,19 @@ export function Camera() {
           </Typography>
           {facebookConfigured && (
             <>
+              <FormControl fullWidth sx={{ mb: 2 }} disabled={rtmpStarting}>
+                <InputLabel>Privacy</InputLabel>
+                <Select
+                  value={goLivePrivacy}
+                  label="Privacy"
+                  onChange={(e) => setGoLivePrivacy(e.target.value)}
+                >
+                  <MenuItem value="EVERYONE">Public</MenuItem>
+                  <MenuItem value="ALL_FRIENDS">Friends</MenuItem>
+                  <MenuItem value="FRIENDS_OF_FRIENDS">Friends of friends</MenuItem>
+                  <MenuItem value="SELF">Only me</MenuItem>
+                </Select>
+              </FormControl>
               <Button
                 variant="outlined"
                 fullWidth
@@ -835,6 +885,16 @@ export function Camera() {
               />
             </Stack>
           </Stack>
+          <TextField
+            label="Match description (optional)"
+            placeholder="Included in live video post. Supports multiple lines."
+            value={startForm.matchDescription}
+            onChange={(e) => setStartForm((f) => ({ ...f, matchDescription: e.target.value }))}
+            fullWidth
+            multiline
+            minRows={3}
+            sx={{ mt: 2 }}
+          />
           {startError && (
             <Typography color="error" variant="body2" sx={{ mt: 2 }}>
               {startError}

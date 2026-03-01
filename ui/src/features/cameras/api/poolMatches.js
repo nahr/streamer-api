@@ -21,6 +21,7 @@ import { fetchWithAuth } from '../../../apiClient.js'
  * @property {string} camera_id
  * @property {string} camera_name
  * @property {string} [started_by] - Display name of user who started the match
+ * @property {string} [description] - Match description (supports newlines), used in live video post
  */
 
 /**
@@ -51,7 +52,7 @@ export async function getActiveMatch(cameraId) {
 }
 
 /**
- * @param {{ player_one: { name: string, race_to: number, rating?: { type: string, value: number } }, player_two: { name: string, race_to: number, rating?: { type: string, value: number } }, camera_id: string }} payload
+ * @param {{ player_one: { name: string, race_to: number, rating?: { type: string, value: number } }, player_two: { name: string, race_to: number, rating?: { type: string, value: number } }, camera_id: string, description?: string }} payload
  * @returns {Promise<{ id: string }>}
  */
 export async function createMatch(payload) {

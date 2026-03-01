@@ -32,6 +32,9 @@ pub struct PoolMatch {
     pub started_by_sub: Option<String>,
     #[serde(default)]
     pub started_by_name: Option<String>,
+    /// Optional match description (supports newlines), used in live video post.
+    #[serde(default)]
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -47,6 +50,8 @@ pub struct PoolMatchDoc {
     pub started_by_sub: Option<String>,
     #[serde(default)]
     pub started_by_name: Option<String>,
+    #[serde(default)]
+    pub description: Option<String>,
 }
 
 impl Db {
@@ -95,6 +100,7 @@ impl Db {
             camera_id: match_data.camera_id,
             started_by_sub: match_data.started_by_sub,
             started_by_name: match_data.started_by_name,
+            description: match_data.description,
         };
         let result = collection.insert_one(doc)?;
         result
