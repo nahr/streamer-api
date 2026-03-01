@@ -76,6 +76,7 @@ pub struct PoolMatchResponse {
     pub player_two: MatchPlayerDto,
     pub start_time: i64,
     pub end_time: Option<i64>,
+    pub camera_id: String,
     pub camera_name: String,
     /// Display name of the user who started the match.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -83,14 +84,15 @@ pub struct PoolMatchResponse {
 }
 
 impl PoolMatchResponse {
-    fn from_doc(doc: PoolMatchDoc) -> Option<Self> {
+    fn from_doc(doc: PoolMatchDoc, camera_name: String) -> Option<Self> {
         doc.id.map(|id| Self {
             id: id.to_hex(),
             player_one: doc.player_one.into(),
             player_two: doc.player_two.into(),
             start_time: doc.start_time.timestamp_millis(),
             end_time: doc.end_time.map(|dt| dt.timestamp_millis()),
-            camera_name: doc.camera_name,
+            camera_id: doc.camera_id.to_hex(),
+            camera_name,
             started_by: doc.started_by_name,
         })
     }
@@ -107,7 +109,7 @@ pub struct MatchPlayerCreateDto {
 pub struct PoolMatchCreateRequest {
     pub player_one: MatchPlayerCreateDto,
     pub player_two: MatchPlayerCreateDto,
-    pub camera_name: String,
+    pub camera_id: String,
 }
 
 #[derive(Deserialize)]
@@ -118,17 +120,28 @@ pub struct PoolMatchUpdateScoreRequest {
 
 #[derive(Deserialize)]
 pub struct ActiveMatchQuery {
-    pub camera_name: String,
+    pub camera_id: String,
 }
 
-/// GET /api/pool-matches/active?camera_name=X - Get the active (ongoing) match for a camera.
+/// GET /api/pool-matches/active?camera_id=X - Get the active (ongoing) match for a camera.
 pub async fn pool_matches_active(
     _auth: AuthenticatedUser,
     State(app): State<AppState>,
     Query(q): Query<ActiveMatchQuery>,
 ) -> Result<Json<Option<PoolMatchResponse>>, ApiError> {
-    let m = app.db.find_active_pool_match_by_camera_name(&q.camera_name)?;
-    Ok(Json(m.and_then(PoolMatchResponse::from_doc)))
+    let camera_oid = ObjectId::parse_str(&q.camera_id)
+        .map_err(|_| ApiError::BadRequest("Invalid camera_id".to_string()))?;
+    let m = app.db.find_active_pool_match_by_camera_id(&camera_oid)?;
+    let resp = m.and_then(|doc| {
+        let camera_name = app.db
+            .find_camera_by_id(&doc.camera_id)
+            .ok()
+            .flatten()
+            .map(|c| c.name)
+            .unwrap_or_default();
+        PoolMatchResponse::from_doc(doc, camera_name)
+    });
+    Ok(Json(resp))
 }
 
 /// GET /api/pool-matches - List all pool matches. Public (no auth required).
@@ -138,7 +151,15 @@ pub async fn pool_matches_list(
     let matches = app.db.list_pool_matches()?;
     let responses: Vec<PoolMatchResponse> = matches
         .into_iter()
-        .filter_map(PoolMatchResponse::from_doc)
+        .filter_map(|doc| {
+            let camera_name = app.db
+                .find_camera_by_id(&doc.camera_id)
+                .ok()
+                .flatten()
+                .map(|c| c.name)
+                .unwrap_or_default();
+            PoolMatchResponse::from_doc(doc, camera_name)
+        })
         .collect();
     Ok(Json(responses))
 }
@@ -154,7 +175,13 @@ pub async fn pool_matches_get(
     let m = app.db
         .find_pool_match_by_id(&oid)?
         .ok_or(ApiError::PoolMatchNotFound)?;
-    PoolMatchResponse::from_doc(m).ok_or(ApiError::PoolMatchNotFound).map(Json)
+    let camera_name = app.db
+        .find_camera_by_id(&m.camera_id)
+        .ok()
+        .flatten()
+        .map(|c| c.name)
+        .unwrap_or_default();
+    PoolMatchResponse::from_doc(m, camera_name).ok_or(ApiError::PoolMatchNotFound).map(Json)
 }
 
 /// POST /api/pool-matches - Create a new pool match.
@@ -166,9 +193,11 @@ pub async fn pool_matches_create(
     if req.player_one.name.is_empty() || req.player_two.name.is_empty() {
         return Err(ApiError::BadRequest("player names are required".to_string()));
     }
-    if req.camera_name.is_empty() {
-        return Err(ApiError::BadRequest("camera_name is required".to_string()));
-    }
+    let camera_oid = ObjectId::parse_str(&req.camera_id)
+        .map_err(|_| ApiError::BadRequest("Invalid camera_id".to_string()))?;
+    let _camera = app.db
+        .find_camera_by_id(&camera_oid)?
+        .ok_or(ApiError::CameraNotFound)?;
     if req.player_one.race_to == 0 || req.player_two.race_to == 0 {
         return Err(ApiError::BadRequest("race_to must be greater than 0".to_string()));
     }
@@ -194,19 +223,18 @@ pub async fn pool_matches_create(
             .transpose()?,
     };
 
-    let camera_name = req.camera_name.clone();
     let match_data = PoolMatch {
         player_one,
         player_two,
         start_time: DateTime::now(),
         end_time: None,
-        camera_name: req.camera_name,
+        camera_id: camera_oid,
         started_by_sub: Some(auth.sub),
         started_by_name: Some(auth.name),
     };
 
     let id = app.db.create_pool_match(match_data)?;
-    video::update_overlay(&app.db, &app.overlay, &camera_name, &app.rtmp_processes, None);
+    video::update_overlay(&app.db, &app.overlay, &camera_oid, &app.rtmp_processes, None);
     Ok(Json(serde_json::json!({ "id": id.to_hex() })))
 }
 
@@ -221,12 +249,12 @@ pub async fn pool_matches_update_score(
         ObjectId::parse_str(&id).map_err(|_| ApiError::BadRequest("Invalid pool match id".to_string()))?;
     let updated = app.db.update_pool_match_games_won(&oid, req.player, req.games_won)?;
     if updated.end_time.is_some() {
-        video::clear_overlay(&app.db, &app.overlay, &updated.camera_name, &app.rtmp_processes);
+        video::clear_overlay(&app.db, &app.overlay, &updated.camera_id, &app.rtmp_processes);
     } else {
         video::update_overlay(
             &app.db,
             &app.overlay,
-            &updated.camera_name,
+            &updated.camera_id,
             &app.rtmp_processes,
             Some(video::MatchOverlay {
                 player_one: video::OverlayPlayer::from_match_player(&updated.player_one),
@@ -234,7 +262,13 @@ pub async fn pool_matches_update_score(
             }),
         );
     }
-    PoolMatchResponse::from_doc(updated)
+    let camera_name = app.db
+        .find_camera_by_id(&updated.camera_id)
+        .ok()
+        .flatten()
+        .map(|c| c.name)
+        .unwrap_or_default();
+    PoolMatchResponse::from_doc(updated, camera_name)
         .ok_or(ApiError::PoolMatchNotFound)
         .map(Json)
 }
@@ -247,13 +281,15 @@ pub async fn pool_matches_end(
 ) -> Result<Json<PoolMatchResponse>, ApiError> {
     let oid =
         ObjectId::parse_str(&id).map_err(|_| ApiError::BadRequest("Invalid pool match id".to_string()))?;
-    let camera_name = app.db
-        .find_pool_match_by_id(&oid)?
-        .map(|m| m.camera_name)
-        .unwrap_or_default();
     let updated = app.db.end_pool_match(&oid)?;
-    video::clear_overlay(&app.db, &app.overlay, &camera_name, &app.rtmp_processes);
-    PoolMatchResponse::from_doc(updated)
+    video::clear_overlay(&app.db, &app.overlay, &updated.camera_id, &app.rtmp_processes);
+    let camera_name = app.db
+        .find_camera_by_id(&updated.camera_id)
+        .ok()
+        .flatten()
+        .map(|c| c.name)
+        .unwrap_or_default();
+    PoolMatchResponse::from_doc(updated, camera_name)
         .ok_or(ApiError::PoolMatchNotFound)
         .map(Json)
 }
@@ -266,15 +302,15 @@ pub async fn pool_matches_delete(
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let oid =
         ObjectId::parse_str(&id).map_err(|_| ApiError::BadRequest("Invalid pool match id".to_string()))?;
-    let camera_name = app.db
-        .find_pool_match_by_id(&oid)?
-        .map(|m| m.camera_name)
-        .unwrap_or_default();
+    let match_doc = app.db.find_pool_match_by_id(&oid)?;
+    let camera_id = match_doc.as_ref().map(|m| m.camera_id);
     let deleted = app.db.delete_pool_match(&oid)?;
     if !deleted {
         return Err(ApiError::PoolMatchNotFound);
     }
-    video::clear_overlay(&app.db, &app.overlay, &camera_name, &app.rtmp_processes);
+    if let Some(ref cid) = camera_id {
+        video::clear_overlay(&app.db, &app.overlay, cid, &app.rtmp_processes);
+    }
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 

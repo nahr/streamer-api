@@ -27,7 +27,7 @@ pub struct PoolMatch {
     pub player_two: MatchPlayer,
     pub start_time: DateTime,
     pub end_time: Option<DateTime>,
-    pub camera_name: String,
+    pub camera_id: ObjectId,
     #[serde(default)]
     pub started_by_sub: Option<String>,
     #[serde(default)]
@@ -42,7 +42,7 @@ pub struct PoolMatchDoc {
     pub player_two: MatchPlayer,
     pub start_time: DateTime,
     pub end_time: Option<DateTime>,
-    pub camera_name: String,
+    pub camera_id: ObjectId,
     #[serde(default)]
     pub started_by_sub: Option<String>,
     #[serde(default)]
@@ -64,13 +64,13 @@ impl Db {
     }
 
     /// Find the active (ongoing) pool match for a camera. Returns the match if end_time is null.
-    pub fn find_active_pool_match_by_camera_name(
+    pub fn find_active_pool_match_by_camera_id(
         &self,
-        camera_name: &str,
+        camera_id: &ObjectId,
     ) -> Result<Option<PoolMatchDoc>, ApiError> {
         let collection = self.0.collection::<PoolMatchDoc>(POOL_MATCHES_COLLECTION);
         Ok(collection.find_one(doc! {
-            "camera_name": camera_name,
+            "camera_id": camera_id,
             "end_time": null
         })?)
     }
@@ -78,7 +78,7 @@ impl Db {
     /// Create a new pool match. Fails if there is already an active match for this camera.
     pub fn create_pool_match(&self, match_data: PoolMatch) -> Result<ObjectId, ApiError> {
         if self
-            .find_active_pool_match_by_camera_name(&match_data.camera_name)?
+            .find_active_pool_match_by_camera_id(&match_data.camera_id)?
             .is_some()
         {
             return Err(ApiError::BadRequest(
@@ -92,7 +92,7 @@ impl Db {
             player_two: match_data.player_two,
             start_time: match_data.start_time,
             end_time: match_data.end_time,
-            camera_name: match_data.camera_name,
+            camera_id: match_data.camera_id,
             started_by_sub: match_data.started_by_sub,
             started_by_name: match_data.started_by_name,
         };

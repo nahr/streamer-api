@@ -20,6 +20,14 @@ impl CameraType {
     }
 }
 
+/// Build a query filter that matches documents with Internal camera type.
+/// Uses $eq to avoid PoloDB rejecting "Internal" as a query field name.
+fn internal_camera_type_filter() -> Result<polodb_core::bson::Document, ApiError> {
+    let internal_bson = polodb_core::bson::to_bson(&CameraType::Internal)
+        .map_err(|e| ApiError::Unknown(e.to_string()))?;
+    Ok(doc! { "camera_type": { "$eq": internal_bson } })
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CameraDoc {
     #[serde(rename = "_id", skip_serializing_if = "Option::is_none")]
@@ -51,7 +59,7 @@ impl Db {
     /// Find the internal camera, if one exists.
     pub fn find_internal_camera(&self) -> Result<Option<CameraDoc>, ApiError> {
         let collection = self.0.collection::<CameraDoc>(CAMERAS_COLLECTION);
-        Ok(collection.find_one(doc! { "camera_type": { "Internal": null } })?)
+        Ok(collection.find_one(internal_camera_type_filter()?)?)
     }
 
     /// Create a new camera. Fails if creating Internal and one already exists.
@@ -59,7 +67,7 @@ impl Db {
         if camera_type.is_internal() {
             let existing = self.0
                 .collection::<CameraDoc>(CAMERAS_COLLECTION)
-                .find_one(doc! { "camera_type": { "Internal": null } })?;
+                .find_one(internal_camera_type_filter()?)?;
             if existing.is_some() {
                 return Err(ApiError::InternalCameraExists);
             }
@@ -84,20 +92,24 @@ impl Db {
         name: String,
         camera_type: CameraType,
     ) -> Result<(), ApiError> {
+        // Only check for duplicate Internal when *changing* to Internal (not when updating name of existing Internal)
         if camera_type.is_internal() {
-            let existing = self.0
-                .collection::<CameraDoc>(CAMERAS_COLLECTION)
-                .find_one(doc! { "camera_type": { "Internal": null }, "_id": { "$ne": id } })?;
-            if existing.is_some() {
-                return Err(ApiError::InternalCameraExists);
+            let current = self.find_camera_by_id(id)?;
+            let was_already_internal = current.as_ref().map_or(false, |c| c.camera_type.is_internal());
+            if !was_already_internal {
+                let existing = self.0
+                    .collection::<CameraDoc>(CAMERAS_COLLECTION)
+                    .find_one(internal_camera_type_filter()?)?;
+                if existing.is_some() {
+                    return Err(ApiError::InternalCameraExists);
+                }
             }
         }
         let collection = self.0.collection::<CameraDoc>(CAMERAS_COLLECTION);
-        let camera_type_bson = polodb_core::bson::to_bson(&camera_type)
-            .map_err(|e| ApiError::Unknown(e.to_string()))?;
-        let camera_type_doc = match camera_type_bson {
-            polodb_core::bson::Bson::Document(d) => d,
-            _ => return Err(ApiError::BadRequest("Invalid camera type".to_string())),
+        let camera_type_doc = match &camera_type {
+            CameraType::Rtsp { url } => doc! { "Rtsp": { "url": url.clone() } },
+            CameraType::Internal => doc! { "Internal": null },
+            CameraType::Usb { device } => doc! { "Usb": { "device": device.clone() } },
         };
         let update_doc = doc! {
             "$set": {

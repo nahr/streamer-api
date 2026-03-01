@@ -101,7 +101,6 @@ impl Auth0Client {
             ApiError::BadRequest("AUTH0_CLIENT_SECRET must be set for Auth0".to_string())
         })?;
 
-        tracing::info!(client_id = %client_id, "configuring Auth0 client");
         let base_url = domain.trim().trim_end_matches('/');
         let base_url = if base_url.starts_with("http") {
             base_url.to_string()

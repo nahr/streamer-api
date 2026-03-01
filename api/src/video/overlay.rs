@@ -7,6 +7,8 @@ use imageproc::drawing::{draw_filled_circle_mut, draw_filled_rect_mut, draw_text
 use imageproc::rect::Rect;
 use std::sync::{Arc, RwLock};
 
+use polodb_core::bson::oid::ObjectId;
+
 use crate::db::pool_match::{MatchPlayer, Rating};
 use crate::db::Db;
 use crate::video::rtmp;
@@ -193,15 +195,17 @@ pub fn render_overlay_png(path: &std::path::Path, overlay: Option<&MatchOverlay>
 pub fn restore_overlay_from_db(db: &Db, overlay_state: &OverlayState, rtmp_processes: &rtmp::RtmpState) {
     let cameras = db.list_cameras().ok().unwrap_or_default();
     for camera in cameras {
-        if camera.camera_type.is_internal()
-            && db
-                .find_active_pool_match_by_camera_name(&camera.name)
-                .ok()
-                .flatten()
-                .is_some()
-        {
-            update_overlay(db, overlay_state, &camera.name, rtmp_processes, None);
-            break;
+        if let Some(ref id) = camera.id {
+            if camera.camera_type.is_internal()
+                && db
+                    .find_active_pool_match_by_camera_id(id)
+                    .ok()
+                    .flatten()
+                    .is_some()
+            {
+                update_overlay(db, overlay_state, id, rtmp_processes, None);
+                break;
+            }
         }
     }
 }
@@ -232,29 +236,29 @@ pub fn spawn_overlay_refresh_task(db: Db, overlay_state: OverlayState, _rtmp_pro
 pub fn update_overlay(
     db: &Db,
     overlay_state: &OverlayState,
-    camera_name: &str,
+    camera_id: &ObjectId,
     _rtmp_processes: &rtmp::RtmpState,
     overlay_from_match: Option<MatchOverlay>,
 ) {
-    let camera = match db.find_camera_by_name(camera_name) {
+    let camera = match db.find_camera_by_id(camera_id) {
         Ok(Some(c)) => c,
         Ok(None) => {
-            tracing::warn!(camera = %camera_name, "Camera not found by name");
+            tracing::warn!(camera_id = %camera_id, "Camera not found by id");
             return;
         }
         Err(e) => {
-            tracing::warn!(camera = %camera_name, error = %e, "Failed to find camera");
+            tracing::warn!(camera_id = %camera_id, error = %e, "Failed to find camera");
             return;
         }
     };
 
     if !camera.camera_type.is_internal() {
-        tracing::debug!(camera = %camera_name, "Overlay only applies to internal cameras");
+        tracing::debug!(camera_id = %camera_id, "Overlay only applies to internal cameras");
         return;
     }
 
     let overlay = overlay_from_match.or_else(|| {
-        db.find_active_pool_match_by_camera_name(camera_name)
+        db.find_active_pool_match_by_camera_id(camera_id)
             .ok()
             .flatten()
             .filter(|m| m.end_time.is_none())
@@ -268,7 +272,7 @@ pub fn update_overlay(
         *guard = overlay.clone();
     }
 
-    let path = overlay_path_for_camera(camera_name);
+    let path = overlay_path_for_camera(&camera.name);
     render_overlay_png(&path, overlay.as_ref());
 }
 
@@ -276,16 +280,16 @@ pub fn update_overlay(
 pub fn clear_overlay(
     db: &Db,
     overlay_state: &OverlayState,
-    camera_name: &str,
+    camera_id: &ObjectId,
     _rtmp_processes: &rtmp::RtmpState,
 ) {
-    let camera = match db.find_camera_by_name(camera_name) {
+    let camera = match db.find_camera_by_id(camera_id) {
         Ok(Some(c)) if c.camera_type.is_internal() => c,
         _ => return,
     };
     let current = overlay_state.read().ok().and_then(|g| (*g).clone());
     if current.is_none() {
-        tracing::debug!(camera = %camera_name, "Overlay already cleared, skipping");
+        tracing::debug!(camera_id = %camera_id, "Overlay already cleared, skipping");
         return;
     }
     if let Ok(mut guard) = overlay_state.write() {

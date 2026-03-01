@@ -18,6 +18,7 @@ import { fetchWithAuth } from '../../../apiClient.js'
  * @property {MatchPlayer} player_two
  * @property {number} start_time
  * @property {number | null} [end_time]
+ * @property {string} camera_id
  * @property {string} camera_name
  * @property {string} [started_by] - Display name of user who started the match
  */
@@ -36,11 +37,11 @@ export async function listMatches() {
 }
 
 /**
- * @param {string} cameraName
+ * @param {string} cameraId
  * @returns {Promise<PoolMatch | null>}
  */
-export async function getActiveMatch(cameraName) {
-  const res = await fetchWithAuth(`/api/pool-matches/active?camera_name=${encodeURIComponent(cameraName)}`)
+export async function getActiveMatch(cameraId) {
+  const res = await fetchWithAuth(`/api/pool-matches/active?camera_id=${encodeURIComponent(cameraId)}`)
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || 'Failed to fetch active match')
@@ -50,7 +51,7 @@ export async function getActiveMatch(cameraName) {
 }
 
 /**
- * @param {{ player_one: { name: string, race_to: number, rating?: { type: string, value: number } }, player_two: { name: string, race_to: number, rating?: { type: string, value: number } }, camera_name: string }} payload
+ * @param {{ player_one: { name: string, race_to: number, rating?: { type: string, value: number } }, player_two: { name: string, race_to: number, rating?: { type: string, value: number } }, camera_id: string }} payload
  * @returns {Promise<{ id: string }>}
  */
 export async function createMatch(payload) {

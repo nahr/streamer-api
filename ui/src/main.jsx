@@ -24,6 +24,7 @@ if (import.meta.env.DEV && clientId) {
 const redirectUri = import.meta.env.AUTH0_REDIRECT_URI || window.location.origin
 // If true, skip audience (uses ID token instead of access token). Use when audience causes 403.
 const skipAudience = import.meta.env.AUTH0_SKIP_AUDIENCE === 'true'
+const connection = import.meta.env.AUTH0_CONNECTION || undefined
 
 const auth0Configured = domain && clientId
 
@@ -54,6 +55,7 @@ function AppWithProviders() {
         redirect_uri: redirectUri,
         audience: skipAudience ? undefined : (audience || undefined),
         scope: 'openid profile email',
+        ...(connection && { connection }),
       }}
     >
       <ApiInfoProvider>

@@ -117,7 +117,6 @@ fn auth0_config() -> Result<(String, Vec<String>), ApiError> {
     }
     if let Ok(c) = std::env::var("AUTH0_CLIENT_ID") {
         if !c.is_empty() {
-            tracing::info!(client_id = %c, "found client id");
             audiences.push(c);
         }
     }
@@ -144,13 +143,6 @@ pub async fn validate_token(
         )));
     }
     tracing::debug!(token_len = token.len(), "validate token");
-    if let Some(payload_b64) = parts.get(1) {
-        if let Ok(payload_bytes) = URL_SAFE_NO_PAD.decode(payload_b64.as_bytes()) {
-            if let Ok(raw) = String::from_utf8(payload_bytes) {
-                tracing::info!(raw_jwt_payload = %raw, "JWT payload (unparsed)");
-            }
-        }
-    }
     let header = decode_header(token)
         .map_err(|e| ApiError::Auth0ClientError(format!("Invalid token header: {}", e)))?;
     let kid = header

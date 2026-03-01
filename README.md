@@ -30,7 +30,7 @@ cd ui && npm run dev
 
 The UI proxies `/api` to the API. Open <http://localhost:5173>.
 
-To reset the database (e.g. if `initialized` is wrong): delete `api/data/` and restart the API.
+To reset the database (e.g. if `initialized` is wrong, or after schema changes like pool matches now using `camera_id`): delete `api/data/` and restart the API.
 
 ## Auth0 Login
 
@@ -55,13 +55,13 @@ The first user to log in becomes an admin.
 
 2. **URL consistency** – Don’t use the API’s “Test Application”; create a new **Single Page Application** in Applications → Create Application.
 
-2. **API User Access** – In APIs → [your API] → Application Access, set **User Access** to **Allow** (not “Allow via client-grant”) so any app can get tokens for user login.
+3. **API User Access** – In APIs → [your API] → Application Access, set **User Access** to **Allow** (not “Allow via client-grant”) so any app can get tokens for user login.
 
-3. **Callback URLs** – Add `http://127.0.0.1:5173` and `http://localhost:5173` to Allowed Callback URLs, Allowed Logout URLs, and Allowed Web Origins.
+4. **Callback URLs** – Add `http://127.0.0.1:5173` and `http://localhost:5173` to Allowed Callback URLs, Allowed Logout URLs, and Allowed Web Origins.
 
-4. **Use ID token** – Add `AUTH0_SKIP_AUDIENCE=true` to `.env` to skip the API audience.
+5. **Use ID token** – Add `AUTH0_SKIP_AUDIENCE=true` to `.env` to skip the API audience.
 
-5. **Wrong client ID** – If Auth0 receives a different client ID than in `.env`: shell env vars override `.env`; check for `.env.local` or `.env.development`; restart the dev server. In dev mode, the console logs `[Auth0] Client ID loaded: xxxxxxxx...` so you can verify.
+6. **Wrong client ID** – If Auth0 receives a different client ID than in `.env`: shell env vars override `.env`; check for `.env.local` or `.env.development`; restart the dev server. In dev mode, the console logs `[Auth0] Client ID loaded: xxxxxxxx...` so you can verify.
 
 ### Auth0 claims (username, email, profile picture)
 
@@ -89,6 +89,42 @@ The app requests `scope: 'openid profile email'`, which includes standard OIDC c
 4. **Facebook** – In the Facebook connection, use only `public_profile` and `email`. Remove `user_link` and any other invalid scopes. If you see "Invalid Scopes: email, user_link":
    - **Auth0**: Dashboard → Authentication → Social → Facebook → edit the connection. Set permissions to `public_profile,email` only.
    - **Meta for Developers**: Your Facebook app → Use cases → Authentication and account creation → add the `email` permission if needed.
+
+### Simplify login flow (skip "Authorize app" and "Reconnect" prompts)
+
+If you see multiple prompts: "Continue with Facebook" → "Reconnect to table.tv" (Facebook) → "Authorize app" (Auth0):
+
+#### Auth0 "Authorize app" – cannot skip on localhost
+
+Auth0 **always shows consent for `localhost`** – this is a security restriction and cannot be overridden. To skip it during development:
+
+1. Add to `/etc/hosts`: `127.0.0.1 table-tv.local`
+2. In `.env`: `AUTH0_REDIRECT_URI=http://table-tv.local:5173`
+3. In Auth0 Dashboard → Applications → [Your App] → Settings:
+   - Add `http://table-tv.local:5173` to **Allowed Callback URLs**
+   - Add `http://table-tv.local:5173` to **Allowed Logout URLs**
+   - Add `http://table-tv.local:5173` to **Allowed Web Origins**
+4. Open the app at **<http://table-tv.local:5173>** (not localhost)
+
+Also enable: Auth0 Dashboard → APIs → [your API] → Settings → Access Settings → **Allow Skipping User Consent**.
+
+#### Facebook "Reconnect to table.tv"
+
+1. **Valid OAuth Redirect URIs** – In [Meta for Developers](https://developers.facebook.com/) → Your App → Facebook Login → Settings, add:
+
+   ```
+   https://YOUR_TENANT.auth0.com/login/callback
+   ```
+
+   Replace `YOUR_TENANT` with your Auth0 domain (e.g. `dev-r1xdk6f2gw5bybyr`).
+
+2. **App mode** – If the app is in **Development** mode, only test users can log in and Facebook may show different prompts. Switch to **Live** mode (App Review → Permissions and Features) if you need all users to log in.
+
+3. **App domains** – Add your domain (e.g. `table-tv.local` or your production domain) to **App Domains** in the Facebook app's Basic Settings.
+
+#### Go straight to Facebook
+
+Set `AUTH0_CONNECTION=facebook` in `.env` to skip the Auth0 method selection page.
 
 **USB webcam:** If you use an external USB webcam instead of the built-in camera, set `CAMERA_INDEX=1` in `.env` (or `0` if the USB cam is the only/first device).
 

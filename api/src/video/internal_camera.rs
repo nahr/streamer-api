@@ -283,7 +283,7 @@ pub async fn camera_stream_rtmp_start(
     overlay::update_overlay(
         &app.db,
         &app.overlay,
-        &camera.name,
+        &oid,
         &app.rtmp_processes,
         None,
     );

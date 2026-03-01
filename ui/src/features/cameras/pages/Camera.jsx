@@ -94,17 +94,17 @@ export function Camera() {
   }, [camera?.id, camera?.camera_type])
 
   const fetchActiveMatch = useCallback(async () => {
-    if (!camera?.name) return
+    if (!camera?.id) return
     setMatchLoading(true)
     try {
-      const m = await getActiveMatch(camera.name)
+      const m = await getActiveMatch(camera.id)
       setActiveMatch(m)
     } catch {
       setActiveMatch(null)
     } finally {
       setMatchLoading(false)
     }
-  }, [camera?.name])
+  }, [camera?.id])
 
   useEffect(() => {
     if (!id) return
@@ -126,8 +126,8 @@ export function Camera() {
   }, [id])
 
   useEffect(() => {
-    if (camera?.name) fetchActiveMatch()
-  }, [camera?.name, fetchActiveMatch])
+    if (camera?.id) fetchActiveMatch()
+  }, [camera?.id, fetchActiveMatch])
 
   const fetchRtmpStatus = useCallback(async () => {
     if (!camera?.id) return
@@ -195,7 +195,7 @@ export function Camera() {
           race_to: playerTwoRaceTo,
           ...(r2 != null && { rating: { type: playerTwoRatingType, value: r2 } }),
         },
-        camera_name: camera.name,
+        camera_id: camera.id,
       })
       setStartDialogOpen(false)
       setStartForm({ playerOneName: '', playerTwoName: '', playerOneRaceTo: 5, playerTwoRaceTo: 5, playerOneRating: '', playerTwoRating: '', playerOneRatingType: 'Fargo', playerTwoRatingType: 'Fargo' })

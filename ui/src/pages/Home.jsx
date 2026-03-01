@@ -108,7 +108,7 @@ export function Home() {
     return () => { cancelled = true }
   }, [])
 
-  const cameraByName = Object.fromEntries(cameras.map((c) => [c.name, c]))
+  const cameraById = Object.fromEntries(cameras.map((c) => [c.id, c]))
 
   return (
     <Box sx={{ p: 2 }}>
@@ -134,12 +134,15 @@ export function Home() {
         <Paper variant="outlined" sx={{ mb: 3 }}>
           <List disablePadding>
             {matches.map((match) => {
-              const camera = cameraByName[match.camera_name]
+              const camera = cameraById[match.camera_id]
               const score = `${match.player_one.games_won} - ${match.player_two.games_won}`
               const winner = getMatchWinner(match)
               const secondary = (
                 <>
-                  {formatTime(match.start_time)} · <MatchDuration match={match} />
+                  {formatTime(match.start_time)}
+                  {match.camera_name && <> · {match.camera_name}</>}
+                  {' · '}
+                  <MatchDuration match={match} />
                   {match.started_by && (
                     <> · Started by {match.started_by}</>
                   )}
