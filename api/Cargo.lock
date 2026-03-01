@@ -2402,7 +2402,6 @@ dependencies = [
  "image",
  "imageproc",
  "jsonwebtoken",
- "log",
  "reqwest",
  "rusqlite",
  "serde",

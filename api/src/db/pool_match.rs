@@ -229,7 +229,7 @@ impl Db {
             .find_pool_match_by_id(id)?
             .ok_or(ApiError::PoolMatchNotFound)?;
 
-        log::info!("setting player {} to {} for id {}", player, games_won, id);
+        tracing::info!("setting player {} to {} for id {}", player, games_won, id);
 
         let race_to = match player {
             1 => doc.player_one.race_to,
