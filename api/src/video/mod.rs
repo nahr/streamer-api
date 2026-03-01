@@ -9,7 +9,7 @@ use axum::{
 };
 use bytes::Bytes;
 use image::{imageops::FilterType, load_from_memory, RgbImage, Rgba, RgbaImage};
-use imageproc::drawing::{draw_filled_rect_mut, draw_hollow_circle_mut, draw_text_mut};
+use imageproc::drawing::{draw_filled_circle_mut, draw_filled_rect_mut, draw_text_mut};
 use imageproc::rect::Rect;
 use nokhwa::{
     pixel_format::RgbFormat,
@@ -59,13 +59,13 @@ const MAX_STREAM_HEIGHT: u32 = 720;
 const JPEG_QUALITY: u8 = 65;
 
 /// Overlay data for an active match. Displayed at bottom of stream.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MatchOverlay {
     pub player_one: OverlayPlayer,
     pub player_two: OverlayPlayer,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OverlayPlayer {
     pub name: String,
     pub rating: Option<String>,
@@ -116,7 +116,11 @@ pub fn restore_overlay_from_db(db: &Db, overlay_state: &OverlayState, rtmp_proce
     let cameras = db.list_cameras().ok().unwrap_or_default();
     for camera in cameras {
         if camera.camera_type.is_internal()
-            && db.find_active_pool_match_by_camera_name(&camera.name).ok().flatten().is_some()
+            && db
+                .find_active_pool_match_by_camera_name(&camera.name)
+                .ok()
+                .flatten()
+                .is_some()
         {
             update_overlay(db, overlay_state, &camera.name, rtmp_processes, None);
             break;
@@ -158,52 +162,37 @@ fn load_font() -> Option<FontRef<'static>> {
     FontRef::try_from_slice(font_bytes).ok()
 }
 
-/// Draw the match overlay onto an RGBA image (for PNG export). Bar at bottom, transparent elsewhere.
-fn draw_overlay_to_rgba(
-    img: &mut RgbaImage,
-    overlay: &MatchOverlay,
-    camera_name: &str,
-    font: &FontRef,
-) {
+/// Draw the match overlay onto an RGBA image (for PNG export).
+/// Layout: left player name+rating | [circle] race to x/y [circle] | right player name+rating.
+fn draw_overlay_to_rgba(img: &mut RgbaImage, overlay: &MatchOverlay, font: &FontRef) {
     let (w, h) = (img.width() as i32, img.height() as i32);
     if w < 1 || h < 1 {
         return;
     }
-    // Scale for overlay bar (80px): use larger scale so text is readable when composited on video
+    // Match UI: background rgba(0,0,0,0.9), px: 2 (16px), py: 1.25, gap: 2 (16px)
     let scale = (h as f32 / 80.0 * 20.0).max(14.0).min(36.0);
     let line_h = (scale * 1.1) as i32;
-    let bar_h = (line_h * 2 + 20).min(h - 4).max(32).min(h);
-    let bar_y = (h - bar_h).max(0);
-    let y = bar_y + 6;
+    let px = 16; // px: 2 = 16px
+    let section_gap = 16; // gap: 2 between left/center/right
 
-    let bar_rect = Rect::at(0, bar_y).of_size(w as u32, bar_h as u32);
-    draw_filled_rect_mut(img, bar_rect, Rgba([0u8, 0, 0, 230]));
+    let bar_rect = Rect::at(0, 0).of_size(w as u32, h as u32);
+    draw_filled_rect_mut(img, bar_rect, Rgba([0u8, 0, 0, 230])); // rgba(0,0,0,0.9)
 
     let white = Rgba([255u8, 255, 255, 255]);
-    let gray = Rgba([180u8, 180, 180, 255]);
+    let gray = Rgba([204u8, 204, 204, 255]); // rgba(255,255,255,0.8)
     let scale_sm = scale * 0.65;
 
-    // Camera name in top-right corner
-    if !camera_name.is_empty() {
-        let (cn_w, _) =
-            imageproc::drawing::text_size(ab_glyph::PxScale::from(scale_sm), font, camera_name);
-        let cn_x = (w - cn_w as i32 - 12).max(0);
-        draw_text_mut(
-            img,
-            gray,
-            cn_x,
-            y,
-            ab_glyph::PxScale::from(scale_sm),
-            font,
-            camera_name,
-        );
-    }
+    // All content vertically centered (alignItems: 'center')
+    let center_y = h / 2;
 
+    // Left: player1 name + rating, flex-start aligned
+    let p1_name_y = center_y - line_h / 2;
+    let p1_rating_y = center_y + line_h / 2;
     draw_text_mut(
         img,
         white,
-        12,
-        y,
+        px,
+        p1_name_y,
         ab_glyph::PxScale::from(scale),
         font,
         &overlay.player_one.name,
@@ -212,14 +201,16 @@ fn draw_overlay_to_rgba(
         draw_text_mut(
             img,
             gray,
-            12,
-            y + line_h,
+            px,
+            p1_rating_y,
             ab_glyph::PxScale::from(scale_sm),
             font,
             r,
         );
     }
 
+    // Center: 32px circles + "race to" (center-aligned) + x/y
+    let bar_color = Rgba([0u8, 0, 0, 230]);
     let score_scale = scale * 1.1;
     let s1 = overlay.player_one.games_won.to_string();
     let s2 = overlay.player_two.games_won.to_string();
@@ -238,35 +229,58 @@ fn draw_overlay_to_rgba(
     let (s2_w, s2_h) =
         imageproc::drawing::text_size(ab_glyph::PxScale::from(score_scale), font, &s2);
 
+    let circle_d = 32i32;
+    let circle_r = circle_d / 2;
+    let center_gap = 12i32;
     let race_w = race1_w.max(race2_w);
-    let gap = 12;
-    let total_w = s1_w as i32 + gap + race_w as i32 + gap + s2_w as i32;
-    let cx = (w - total_w) / 2;
-    let s1_x = cx;
-    let race_x = cx + s1_w as i32 + gap;
-    let s2_x = cx + s1_w as i32 + gap + race_w as i32 + gap;
+    let total_w = circle_d + center_gap + race_w as i32 + center_gap + circle_d;
+    let center_start = (w - total_w) / 2;
+    let center_end = center_start + total_w;
 
-    let circle_r = (s1_h.max(s2_h) as i32 / 2) + 4;
-    let s1_cy = y + s1_h as i32 / 2;
-    let s2_cy = y + s2_h as i32 / 2;
+    let s1_cx = center_start + circle_r;
+    let race_x = center_start + circle_d + center_gap;
+    let s2_cx = center_start + circle_d + center_gap + race_w as i32 + center_gap + circle_r;
+    let s1_x = s1_cx - s1_w as i32 / 2;
+    let s2_x = s2_cx - s2_w as i32 / 2;
 
-    draw_hollow_circle_mut(img, (s1_x + s1_w as i32 / 2, s1_cy), circle_r, white);
-    draw_hollow_circle_mut(img, (s2_x + s2_w as i32 / 2, s2_cy), circle_r, white);
+    // 2px white border circles
+    draw_filled_circle_mut(img, (s1_cx, center_y), circle_r, white);
+    draw_filled_circle_mut(img, (s1_cx, center_y), circle_r - 2, bar_color);
+    draw_filled_circle_mut(img, (s2_cx, center_y), circle_r, white);
+    draw_filled_circle_mut(img, (s2_cx, center_y), circle_r - 2, bar_color);
 
+    let score_y = center_y - s1_h as i32 / 2 - 3; // nudge number up within circle
     draw_text_mut(
         img,
         white,
         s1_x,
-        y,
+        score_y,
         ab_glyph::PxScale::from(score_scale),
         font,
         &s1,
     );
     draw_text_mut(
         img,
+        white,
+        s2_x,
+        center_y - s2_h as i32 / 2 - 3,
+        ab_glyph::PxScale::from(score_scale),
+        font,
+        &s2,
+    );
+
+    // "race to" and "x/y" - center aligned (horizontal and vertical)
+    let race_gap = 2i32;
+    let race_block_h = race1_h as i32 + race_gap + race1_h as i32;
+    let race_y1 = center_y - race_block_h / 2;
+    let race_y2 = race_y1 + race1_h as i32 + race_gap;
+    let race_line1_x = race_x + (race_w as i32 - race1_w as i32) / 2;
+    let race_line2_x = race_x + (race_w as i32 - race2_w as i32) / 2;
+    draw_text_mut(
+        img,
         gray,
-        race_x,
-        y,
+        race_line1_x,
+        race_y1,
         ab_glyph::PxScale::from(scale_sm),
         font,
         race_line1,
@@ -274,29 +288,25 @@ fn draw_overlay_to_rgba(
     draw_text_mut(
         img,
         gray,
-        race_x,
-        y + race1_h as i32 + 2,
+        race_line2_x,
+        race_y2,
         ab_glyph::PxScale::from(scale_sm),
         font,
         &race_line2,
     );
-    draw_text_mut(
-        img,
-        white,
-        s2_x,
-        y,
-        ab_glyph::PxScale::from(score_scale),
-        font,
-        &s2,
-    );
 
-    let p2_w_approx = (overlay.player_two.name.len() as f32 * scale * 0.6) as i32;
-    let p2_x = (w - p2_w_approx - 16).max(cx + total_w + 24);
+    // Right: player2 name + rating, flex-end aligned
+    let (p2_w, _) = imageproc::drawing::text_size(
+        ab_glyph::PxScale::from(scale),
+        font,
+        &overlay.player_two.name,
+    );
+    let p2_x = (w - p2_w as i32 - px).max(center_end + section_gap);
     draw_text_mut(
         img,
         white,
         p2_x,
-        y,
+        p1_name_y,
         ab_glyph::PxScale::from(scale),
         font,
         &overlay.player_two.name,
@@ -306,7 +316,7 @@ fn draw_overlay_to_rgba(
             img,
             gray,
             p2_x,
-            y + line_h,
+            p1_rating_y,
             ab_glyph::PxScale::from(scale_sm),
             font,
             r,
@@ -320,11 +330,11 @@ fn overlay_tmp_path(path: &std::path::Path) -> std::path::PathBuf {
 }
 
 /// Write overlay to PNG for ffmpeg to use. Atomic write so ffmpeg -reload picks up changes.
-fn render_overlay_to_png(overlay: &MatchOverlay, camera_name: &str, path: &std::path::Path) {
+fn render_overlay_to_png(overlay: &MatchOverlay, path: &std::path::Path) {
     if let Some(font) = load_font() {
         let mut img =
             RgbaImage::from_pixel(MAX_STREAM_WIDTH, OVERLAY_BAR_HEIGHT, Rgba([0, 0, 0, 0]));
-        draw_overlay_to_rgba(&mut img, overlay, camera_name, &font);
+        draw_overlay_to_rgba(&mut img, overlay, &font);
         if let Some(parent) = path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
@@ -451,44 +461,28 @@ fn spawn_camera_capture(tx: broadcast::Sender<Bytes>, _overlay_state: OverlaySta
                     tracing::warn!("Frame capture error: {}", e);
                 }
             }
-
-            std::thread::sleep(std::time::Duration::from_millis(33));
         }
     });
 }
 
-/// Spawn a background task that periodically writes the overlay PNG while a match is active.
-pub fn spawn_overlay_refresh_task(db: Db) {
+/// Spawn a background task that periodically syncs overlay PNG with DB. Uses update_overlay
+/// so it skips write/restart when nothing has changed.
+pub fn spawn_overlay_refresh_task(db: Db, overlay_state: OverlayState, rtmp_processes: RtmpState) {
     std::thread::spawn(move || {
         let interval = std::time::Duration::from_secs(2);
         loop {
             std::thread::sleep(interval);
-            refresh_overlay_png_from_db(&db);
+            let cameras = match db.list_cameras() {
+                Ok(c) => c,
+                Err(_) => continue,
+            };
+            for camera in cameras {
+                if camera.camera_type.is_internal() {
+                    update_overlay(&db, &overlay_state, &camera.name, &rtmp_processes, None);
+                }
+            }
         }
     });
-}
-
-/// Sync overlay PNG with current match state from DB. Call before RTMP start or periodically.
-pub fn refresh_overlay_png_from_db(db: &Db) {
-    let cameras = db.list_cameras().ok().unwrap_or_default();
-    for camera in cameras {
-        if !camera.camera_type.is_internal() {
-            continue;
-        }
-        let overlay = match db.find_active_pool_match_by_camera_name(&camera.name) {
-            Ok(Some(m)) if m.end_time.is_none() => Some(MatchOverlay {
-                player_one: OverlayPlayer::from_match_player(&m.player_one),
-                player_two: OverlayPlayer::from_match_player(&m.player_two),
-            }),
-            _ => None,
-        };
-        let path = overlay_path_for_camera(&camera.name);
-        if let Some(ref o) = overlay {
-            render_overlay_to_png(o, &camera.name, &path);
-        } else {
-            clear_overlay_png(&path);
-        }
-    }
 }
 
 /// Update the overlay for the camera. Call when match is created/updated.
@@ -529,11 +523,17 @@ pub fn update_overlay(
             })
     });
 
+    let current = overlay_state.read().ok().and_then(|g| (*g).clone());
+    if current == overlay {
+        tracing::debug!(camera = %camera_name, "Overlay unchanged, skipping write");
+        return;
+    }
+
     let path = overlay_path_for_camera(camera_name);
 
     if let Some(ref o) = overlay {
         tracing::info!(camera = %camera_name, "Overlay PNG rendered");
-        render_overlay_to_png(o, camera_name, &path);
+        render_overlay_to_png(o, &path);
     } else {
         tracing::info!(camera = %camera_name, "Overlay cleared");
         clear_overlay_png(&path);
@@ -562,6 +562,11 @@ pub fn clear_overlay(
         Ok(Some(c)) if c.camera_type.is_internal() => c,
         _ => return,
     };
+    let current = overlay_state.read().ok().and_then(|g| (*g).clone());
+    if current.is_none() {
+        tracing::debug!(camera = %camera_name, "Overlay already cleared, skipping");
+        return;
+    }
     clear_overlay_png(&overlay_path_for_camera(&camera.name));
     if let Ok(mut guard) = overlay_state.write() {
         *guard = None;
@@ -810,7 +815,6 @@ fn spawn_rtmp_pipeline(
             }
 
             if child.try_wait().ok().flatten().is_some() {
-                std::thread::sleep(std::time::Duration::from_millis(200));
                 if let Ok(guard) = stderr_done.lock() {
                     if let Some(ref s) = *guard {
                         tracing::error!(camera_id = %id, "RTMP: ffmpeg exited unexpectedly:\n{}", s);
@@ -876,7 +880,13 @@ pub async fn camera_stream_rtmp_start(
     }
 
     // Ensure overlay PNG reflects current match state before ffmpeg reads it
-    refresh_overlay_png_from_db(&app.db);
+    update_overlay(
+        &app.db,
+        &app.overlay,
+        &camera.name,
+        &app.rtmp_processes,
+        None,
+    );
 
     let port = std::env::var("PORT").unwrap_or_else(|_| "8080".to_string());
     let stream_url = format!("http://127.0.0.1:{}/api/cameras/{}/stream", port, id);

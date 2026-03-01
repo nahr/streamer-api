@@ -27,7 +27,7 @@ impl ApiServer {
         if db.list_cameras().map_or(false, |cams| cams.iter().any(|c| c.camera_type.is_internal())) {
             video::ensure_internal_camera_ready(overlay.clone());
             video::restore_overlay_from_db(&db, &overlay, &rtmp_processes);
-            video::spawn_overlay_refresh_task(db.clone());
+            video::spawn_overlay_refresh_task(db.clone(), overlay.clone(), rtmp_processes.clone());
         }
         let app_state = AppState {
             db: db.clone(),
