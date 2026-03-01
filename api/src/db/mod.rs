@@ -4,6 +4,7 @@ use std::path::Path;
 pub mod admin;
 pub mod camera;
 pub mod pool_match;
+pub mod settings;
 
 use crate::error::ApiError;
 

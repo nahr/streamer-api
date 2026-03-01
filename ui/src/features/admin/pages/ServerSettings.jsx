@@ -1,20 +1,30 @@
 import { useState, useEffect } from 'react'
-import { Box, Typography, Paper, Chip } from '@mui/material'
+import { Box, Typography, Paper, Chip, TextField, Button } from '@mui/material'
 import { getFacebookStatus } from '../../cameras/api/cameras.js'
+import { getSettings, updateSettings } from '../api/settings.js'
+import { useApiInfo } from '../../../apiInfoStore.jsx'
 
 export function ServerSettings() {
+  const { refetch } = useApiInfo()
   const [facebookConfigured, setFacebookConfigured] = useState(false)
   const [facebookRedirectUri, setFacebookRedirectUri] = useState('')
   const [loading, setLoading] = useState(true)
+  const [locationName, setLocationName] = useState('')
+  const [locationNameSaving, setLocationNameSaving] = useState(false)
+  const [locationNameSaved, setLocationNameSaved] = useState(false)
 
   useEffect(() => {
     let cancelled = false
     async function check() {
       try {
-        const { configured, redirect_uri } = await getFacebookStatus()
+        const [fbStatus, settings] = await Promise.all([
+          getFacebookStatus(),
+          getSettings(),
+        ])
         if (!cancelled) {
-          setFacebookConfigured(configured)
-          setFacebookRedirectUri(redirect_uri || '')
+          setFacebookConfigured(fbStatus.configured)
+          setFacebookRedirectUri(fbStatus.redirect_uri || '')
+          setLocationName(settings.location_name || '')
         }
       } catch {
         if (!cancelled) setFacebookConfigured(false)
@@ -26,11 +36,52 @@ export function ServerSettings() {
     return () => { cancelled = true }
   }, [])
 
+  const handleSaveLocationName = async () => {
+    setLocationNameSaving(true)
+    setLocationNameSaved(false)
+    try {
+      await updateSettings({ location_name: locationName })
+      setLocationNameSaved(true)
+      setTimeout(() => setLocationNameSaved(false), 2000)
+      refetch({ silent: true })
+    } catch {
+      // Error could be shown via snackbar; for now we just stop loading
+    } finally {
+      setLocationNameSaving(false)
+    }
+  }
+
   return (
     <Box sx={{ p: 2 }}>
       <Typography variant="h4" component="h1" gutterBottom>
         Server Settings
       </Typography>
+
+      <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
+        <Typography variant="h6" gutterBottom>
+          Location Name
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+          A display name for this Table TV installation (e.g. venue or room name).
+        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}>
+          <TextField
+            label="Location name"
+            value={locationName}
+            onChange={(e) => setLocationName(e.target.value)}
+            placeholder="e.g. Main Pool Hall"
+            size="small"
+            sx={{ minWidth: 240 }}
+          />
+          <Button
+            variant="contained"
+            onClick={handleSaveLocationName}
+            disabled={locationNameSaving}
+          >
+            {locationNameSaving ? 'Saving…' : locationNameSaved ? 'Saved' : 'Save'}
+          </Button>
+        </Box>
+      </Paper>
 
       <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
         <Typography variant="h6" gutterBottom>

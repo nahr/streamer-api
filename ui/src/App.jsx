@@ -1,7 +1,7 @@
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { Box, CircularProgress, Typography } from '@mui/material'
 
-import { useApiInfo } from './apiInfoStore'
+import { useApiInfo } from './apiInfoStore.jsx'
 import { useAuth } from './authStore.jsx'
 import { Registration } from './features/admin'
 import { Layout } from './components/Layout'

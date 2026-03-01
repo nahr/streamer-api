@@ -5,7 +5,7 @@ use std::sync::RwLock;
 use tower_http::services::{ServeDir, ServeFile};
 use tower_http::trace::TraceLayer;
 
-use crate::api::{admin, camera, facebook, info, pool_match};
+use crate::api::{admin, camera, facebook, info, pool_match, settings};
 use crate::db::Db;
 use crate::error::ApiError;
 use crate::video::{self, OverlayState};
@@ -43,6 +43,7 @@ impl ApiServer {
             .merge(pool_match::routes())
             .merge(facebook::routes())
             .merge(info::routes())
+            .merge(settings::routes())
             .layer(TraceLayer::new_for_http())
             .with_state(app_state);
 

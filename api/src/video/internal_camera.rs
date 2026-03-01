@@ -273,7 +273,7 @@ pub async fn camera_stream_rtmp_start(
         std::thread::sleep(std::time::Duration::from_secs(2));
     }
 
-    // Ensure overlay PNG reflects current match state before ffmpeg reads it
+    // Ensure overlay PNG exists before ffmpeg reads it
     overlay::update_overlay(
         &app.db,
         &app.overlay,
@@ -287,9 +287,6 @@ pub async fn camera_stream_rtmp_start(
     tracing::info!(stream_url = %stream_url, "RTMP start: starting ffmpeg pipeline");
 
     let overlay_path = overlay::overlay_path_for_camera(&camera.name);
-    if !overlay_path.exists() {
-        overlay::clear_overlay_png(&overlay_path);
-    }
     let (stop_tx, stop_rx) = std::sync::mpsc::channel();
     let rtmp = app.rtmp_processes.clone();
     let id_clone = id.clone();

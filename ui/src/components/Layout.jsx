@@ -4,31 +4,28 @@ import {
   Box,
   Button,
   Container,
-  IconButton,
   Toolbar,
+  Typography,
 } from '@mui/material'
-import MenuIcon from '@mui/icons-material/Menu'
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'
 import { useAuth } from '../authStore.jsx'
+import { useApiInfo } from '../apiInfoStore.jsx'
 
 export function Layout() {
   const navigate = useNavigate()
   const location = useLocation()
   const { isLoggedIn, logout } = useAuth()
+  const { locationName } = useApiInfo()
 
   return (
     <Box sx={{ flexGrow: 1 }}>
       <AppBar position="static">
         <Toolbar>
-          <IconButton
-            size="large"
-            edge="start"
-            color="inherit"
-            aria-label="menu"
-            sx={{ mr: 2 }}
-          >
-            <MenuIcon />
-          </IconButton>
+          {locationName ? (
+            <Typography variant="h6" component="span" sx={{ mr: 2, fontWeight: 600 }}>
+              {locationName}
+            </Typography>
+          ) : null}
           <Button
             color="inherit"
             onClick={() => navigate('/')}

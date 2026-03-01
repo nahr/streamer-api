@@ -28,6 +28,7 @@ import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import LiveTvIcon from '@mui/icons-material/LiveTv'
 import { getCamera, getFacebookLiveUrl, getFacebookStatus, getRtmpStreamStatus, parseCameraType, startRtmpStream, stopRtmpStream } from '../api/cameras.js'
 import { getActiveMatch, createMatch, updateScore, endMatch } from '../api/poolMatches.js'
+import { useApiInfo } from '../../../apiInfoStore.jsx'
 
 function formatCameraType(cameraType) {
   const parsed = parseCameraType(cameraType)
@@ -40,9 +41,19 @@ function getStreamUrl(id) {
   return `/api/cameras/${id}/stream`
 }
 
+function LiveTimestamp() {
+  const [now, setNow] = useState(() => new Date())
+  useEffect(() => {
+    const id = setInterval(() => setNow(new Date()), 1000)
+    return () => clearInterval(id)
+  }, [])
+  return now.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+}
+
 export function Camera() {
   const { id } = useParams()
   const navigate = useNavigate()
+  const { locationName } = useApiInfo()
   const [searchParams, setSearchParams] = useSearchParams()
   const [camera, setCamera] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -360,17 +371,56 @@ export function Camera() {
                 </Button>
               )}
             </Box>
-            <img
-              src={getStreamUrl(camera.id)}
-              alt={`${camera.name} live stream`}
-              style={{
-                width: '100%',
-                maxWidth: 640,
-                borderRadius: 8,
-                backgroundColor: '#000',
-                display: 'block',
-              }}
-            />
+            <Box sx={{ position: 'relative', display: 'inline-block' }}>
+              <img
+                src={getStreamUrl(camera.id)}
+                alt={`${camera.name} live stream`}
+                style={{
+                  width: '100%',
+                  maxWidth: 640,
+                  borderRadius: 8,
+                  backgroundColor: '#000',
+                  display: 'block',
+                }}
+              />
+              <Box
+                sx={{
+                  position: 'absolute',
+                  top: 8,
+                  left: 8,
+                  background: 'rgba(0,0,0,0.7)',
+                  color: '#fff',
+                  px: 1.5,
+                  py: 1,
+                  borderRadius: 1,
+                  fontSize: '0.875rem',
+                }}
+              >
+                {locationName && (
+                  <Box component="div" sx={{ fontWeight: 600, mb: 0.25 }}>
+                    {locationName}
+                  </Box>
+                )}
+                <Box component="div" sx={{ fontSize: '0.75rem', opacity: 0.9 }}>
+                  {camera.name}
+                </Box>
+              </Box>
+              <Box
+                sx={{
+                  position: 'absolute',
+                  top: 8,
+                  right: 8,
+                  background: 'rgba(0,0,0,0.7)',
+                  color: '#fff',
+                  px: 1.5,
+                  py: 1,
+                  borderRadius: 1,
+                  fontSize: '0.875rem',
+                  fontVariantNumeric: 'tabular-nums',
+                }}
+              >
+                <LiveTimestamp />
+              </Box>
             {activeMatch && !activeMatch.end_time && (
               <Box
                 sx={{
@@ -451,6 +501,7 @@ export function Camera() {
                 </Box>
               </Box>
             )}
+            </Box>
           </Box>
         )}
 

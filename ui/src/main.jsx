@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import { ThemeProvider, createTheme, CssBaseline } from '@mui/material'
 import { AuthProvider } from './authStore.jsx'
+import { ApiInfoProvider } from './apiInfoStore.jsx'
 import App from './App.jsx'
 
 const theme = createTheme({
@@ -16,9 +17,11 @@ createRoot(document.getElementById('root')).render(
     <ThemeProvider theme={theme}>
       <CssBaseline />
       <BrowserRouter>
-        <AuthProvider>
-          <App />
-        </AuthProvider>
+        <ApiInfoProvider>
+          <AuthProvider>
+            <App />
+          </AuthProvider>
+        </ApiInfoProvider>
       </BrowserRouter>
     </ThemeProvider>
   </StrictMode>,

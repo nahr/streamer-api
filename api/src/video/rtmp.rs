@@ -11,7 +11,7 @@ pub fn rtmp_state_new() -> RtmpState {
 }
 
 /// Spawn an ffmpeg process that reads MJPEG from stream_url and pushes to rtmp_url.
-/// Overlays the PNG at the given path (written when match overlay changes).
+/// Overlays the PNG at the given path (match bar only).
 /// Runs in a thread; stops when stop_rx receives. Removes from rtmp_processes when done.
 /// Requires ffmpeg to be installed (with libx264 and AAC support).
 pub fn spawn_rtmp_pipeline(
@@ -22,12 +22,8 @@ pub fn spawn_rtmp_pipeline(
     id: String,
     overlay_path: &std::path::Path,
 ) -> Result<(), String> {
-    if !overlay_path.exists() {
-        return Err(format!(
-            "Overlay PNG not found at {}. Ensure data/ directory exists.",
-            overlay_path.display()
-        ));
-    }
+    std::fs::create_dir_all(overlay_path.parent().unwrap_or(std::path::Path::new(".")))
+        .map_err(|e| format!("Failed to create data dir: {}", e))?;
 
     let overlay_path_str = overlay_path
         .canonicalize()
@@ -36,7 +32,7 @@ pub fn spawn_rtmp_pipeline(
         .to_string_lossy()
         .into_owned();
 
-    tracing::info!(overlay_path = %overlay_path_str, "RTMP: ffmpeg overlay PNG");
+    tracing::info!(overlay_path = %overlay_path_str, "RTMP: ffmpeg PNG overlay");
 
     // Facebook Live: H.264 baseline, AAC 48kHz stereo 128kbps CBR, keyframes every 2s, ~2Mbps video.
     let mut child = std::process::Command::new("ffmpeg")
