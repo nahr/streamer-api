@@ -5,6 +5,7 @@ use tokio::sync::broadcast;
 
 mod internal_camera;
 mod overlay;
+mod rtsp_camera;
 mod rtmp;
 
 pub use internal_camera::{

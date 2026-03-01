@@ -196,13 +196,12 @@ pub fn restore_overlay_from_db(db: &Db, overlay_state: &OverlayState, rtmp_proce
     let cameras = db.list_cameras().ok().unwrap_or_default();
     for camera in cameras {
         if let Some(ref id) = camera.id {
-            if camera.camera_type.is_internal()
-                && db
-                    .find_active_pool_match_by_camera_id(id)
-                    .ok()
-                    .flatten()
-                    .is_some()
-            {
+            let has_active_match = db
+                .find_active_pool_match_by_camera_id(id)
+                .ok()
+                .flatten()
+                .is_some();
+            if (camera.camera_type.is_internal() || camera.camera_type.is_rtsp()) && has_active_match {
                 update_overlay(db, overlay_state, id, rtmp_processes, None);
                 break;
             }
@@ -221,7 +220,7 @@ pub fn spawn_overlay_refresh_task(db: Db, overlay_state: OverlayState, _rtmp_pro
                 Err(_) => continue,
             };
             for camera in cameras {
-                if camera.camera_type.is_internal() {
+                if camera.camera_type.is_internal() || camera.camera_type.is_rtsp() {
                     let overlay = overlay_state.read().ok().and_then(|g| (*g).clone());
                     let path = overlay_path_for_camera(&camera.name);
                     render_overlay_png(&path, overlay.as_ref());
@@ -252,8 +251,8 @@ pub fn update_overlay(
         }
     };
 
-    if !camera.camera_type.is_internal() {
-        tracing::debug!(camera_id = %camera_id, "Overlay only applies to internal cameras");
+    if !camera.camera_type.is_internal() && !camera.camera_type.is_rtsp() {
+        tracing::debug!(camera_id = %camera_id, "Overlay only applies to internal and RTSP cameras");
         return;
     }
 
@@ -284,7 +283,7 @@ pub fn clear_overlay(
     _rtmp_processes: &rtmp::RtmpState,
 ) {
     let camera = match db.find_camera_by_id(camera_id) {
-        Ok(Some(c)) if c.camera_type.is_internal() => c,
+        Ok(Some(c)) if c.camera_type.is_internal() || c.camera_type.is_rtsp() => c,
         _ => return,
     };
     let current = overlay_state.read().ok().and_then(|g| (*g).clone());

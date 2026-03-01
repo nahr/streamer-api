@@ -18,6 +18,17 @@ impl CameraType {
     pub fn is_internal(&self) -> bool {
         matches!(self, CameraType::Internal)
     }
+
+    pub fn is_rtsp(&self) -> bool {
+        matches!(self, CameraType::Rtsp { .. })
+    }
+
+    pub fn rtsp_url(&self) -> Option<&str> {
+        match self {
+            CameraType::Rtsp { url } => Some(url.as_str()),
+            _ => None,
+        }
+    }
 }
 
 /// Build a query filter that matches documents with Internal camera type.

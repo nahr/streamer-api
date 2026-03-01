@@ -11,8 +11,8 @@ pub fn rtmp_state_new() -> RtmpState {
     Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()))
 }
 
-/// Spawn RTMP pipeline. On macOS uses FFmpeg direct capture (avfoundation + videotoolbox).
-/// On Linux reads MJPEG from stream_url (preview FFmpeg → HTTP → RTMP FFmpeg).
+/// Spawn RTMP pipeline. On macOS uses FFmpeg direct capture (avfoundation + videotoolbox) for
+/// internal cameras. Use `use_mjpeg_input: true` for RTSP cameras (reads from stream URL on all platforms).
 pub fn spawn_rtmp_pipeline(
     stream_url: &str,
     rtmp_url: &str,
@@ -21,16 +21,21 @@ pub fn spawn_rtmp_pipeline(
     id: String,
     overlay_path: &std::path::Path,
     camera_index: u32,
+    use_mjpeg_input: bool,
 ) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    {
-        let _ = stream_url;
-        spawn_rtmp_pipeline_direct(rtmp_url, stop_rx, rtmp, id, overlay_path, camera_index)
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
+    if use_mjpeg_input {
         spawn_rtmp_pipeline_mjpeg(stream_url, rtmp_url, stop_rx, rtmp, id, overlay_path)
+    } else {
+        #[cfg(target_os = "macos")]
+        {
+            let _ = stream_url;
+            spawn_rtmp_pipeline_direct(rtmp_url, stop_rx, rtmp, id, overlay_path, camera_index)
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        {
+            spawn_rtmp_pipeline_mjpeg(stream_url, rtmp_url, stop_rx, rtmp, id, overlay_path)
+        }
     }
 }
 
@@ -173,8 +178,7 @@ fn spawn_rtmp_pipeline_direct(
 }
 
 /// Spawn an ffmpeg process that reads MJPEG from stream_url and pushes to rtmp_url.
-/// Used on Linux when preview FFmpeg feeds the HTTP stream.
-#[cfg(not(target_os = "macos"))]
+/// Used for RTSP cameras (all platforms) and internal camera on Linux.
 fn spawn_rtmp_pipeline_mjpeg(
     stream_url: &str,
     rtmp_url: &str,

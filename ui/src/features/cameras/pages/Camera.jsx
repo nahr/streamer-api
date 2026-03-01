@@ -82,8 +82,10 @@ export function Camera() {
   const [streamError, setStreamError] = useState(false)
 
   useEffect(() => {
-    if (!camera?.id || parseCameraType(camera?.camera_type).type !== 'internal') return
+    const camType = parseCameraType(camera?.camera_type).type
+    if (!camera?.id || (camType !== 'internal' && camType !== 'rtsp')) return
     setStreamError(false)
+    setStreamUrl('') // Clear while fetching token
     let cancelled = false
     getToken().then((token) => {
       if (!cancelled) {
@@ -131,8 +133,8 @@ export function Camera() {
 
   const fetchRtmpStatus = useCallback(async () => {
     if (!camera?.id) return
-    const isInternalCam = parseCameraType(camera?.camera_type).type === 'internal'
-    if (!isInternalCam) return
+    const camType = parseCameraType(camera?.camera_type).type
+    if (camType !== 'internal' && camType !== 'rtsp') return
     try {
       const { active } = await getRtmpStreamStatus(camera.id)
       setRtmpActive(active)
@@ -143,8 +145,8 @@ export function Camera() {
 
   useEffect(() => {
     if (!camera?.id) return
-    const isInternalCam = parseCameraType(camera?.camera_type).type === 'internal'
-    if (!isInternalCam) return
+    const camType = parseCameraType(camera?.camera_type).type
+    if (camType !== 'internal' && camType !== 'rtsp') return
     fetchRtmpStatus()
     const interval = setInterval(fetchRtmpStatus, 5000)
     return () => clearInterval(interval)
@@ -341,7 +343,7 @@ export function Camera() {
 
   const { label, detail } = formatCameraType(camera.camera_type)
   const parsed = parseCameraType(camera.camera_type)
-  const isInternal = parsed.type === 'internal'
+  const hasStream = parsed.type === 'internal' || parsed.type === 'rtsp'
 
   return (
     <Box sx={{ p: 2 }}>
@@ -360,7 +362,7 @@ export function Camera() {
             {detail}
           </Typography>
         )}
-        {isInternal && (
+        {hasStream && (
           <Box sx={{ mt: 2, position: 'relative', display: 'inline-block' }}>
             <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
             <Button
@@ -384,7 +386,7 @@ export function Camera() {
               )}
             </Box>
             <Box sx={{ position: 'relative', display: 'inline-block' }}>
-              {rtmpActive ? (
+              {rtmpActive && parsed.type === 'internal' ? (
                 <Box
                   sx={{
                     width: '100%',
@@ -416,9 +418,41 @@ export function Camera() {
                     gap: 1,
                   }}
                 >
-                  <Typography>Log in to view stream</Typography>
+                  <Typography>Stream unavailable</Typography>
+                  <Typography variant="body2" sx={{ opacity: 0.8 }}>
+                    {parsed.type === 'rtsp'
+                      ? 'Check that the RTSP URL is valid and reachable'
+                      : 'Ensure you are logged in and the camera is available'}
+                  </Typography>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => { setStreamError(false); getToken().then((t) => setStreamUrl(urlWithToken(`/api/cameras/${camera.id}/stream`, t))) }}
+                    sx={{ mt: 1 }}
+                  >
+                    Retry
+                  </Button>
                 </Box>
-              ) : streamUrl ? (
+              ) : !streamUrl ? (
+                <Box
+                  sx={{
+                    width: '100%',
+                    maxWidth: 640,
+                    aspectRatio: '16/9',
+                    borderRadius: 8,
+                    backgroundColor: '#000',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: 'rgba(255,255,255,0.7)',
+                    flexDirection: 'column',
+                    gap: 1,
+                  }}
+                >
+                  <CircularProgress size={24} />
+                  <Typography variant="body2">Connecting to stream…</Typography>
+                </Box>
+              ) : (
                 <>
               <img
                 src={streamUrl}
@@ -551,22 +585,6 @@ export function Camera() {
               </Box>
             )}
                 </>
-              ) : (
-                <Box
-                  sx={{
-                    width: '100%',
-                    maxWidth: 640,
-                    aspectRatio: '16/9',
-                    borderRadius: 8,
-                    backgroundColor: '#000',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: 'rgba(255,255,255,0.7)',
-                  }}
-                >
-                  <CircularProgress size={32} />
-                </Box>
               )}
             </Box>
           </Box>

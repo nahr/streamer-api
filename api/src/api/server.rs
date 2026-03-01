@@ -20,6 +20,8 @@ pub struct AppState {
     pub rtmp_processes: crate::video::RtmpState,
     pub preview_ffmpeg: crate::video::PreviewFfmpegHandle,
     pub jwks: Option<Arc<auth::JwksCache>>,
+    /// Token for server-side stream access (RTMP pipeline). Env STREAM_TOKEN or random at startup.
+    pub stream_token: String,
 }
 
 impl ApiServer {
@@ -37,6 +39,14 @@ impl ApiServer {
         let jwks = auth0_ready
             .then(|| Arc::new(auth::JwksCache::new(&std::env::var("AUTH0_DOMAIN").unwrap_or_default())));
 
+        let stream_token = std::env::var("STREAM_TOKEN").unwrap_or_else(|_| {
+            use std::collections::hash_map::DefaultHasher;
+            use std::hash::{Hash, Hasher};
+            let mut hasher = DefaultHasher::new();
+            std::time::SystemTime::now().hash(&mut hasher);
+            format!("{:x}", hasher.finish())
+        });
+
         let app_state = AppState {
             db: db.clone(),
             overlay: overlay.clone(),
@@ -44,6 +54,7 @@ impl ApiServer {
             rtmp_processes,
             preview_ffmpeg,
             jwks,
+            stream_token,
         };
 
         let mut app = Router::new()

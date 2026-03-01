@@ -128,9 +128,37 @@ Set `AUTH0_CONNECTION=facebook` in `.env` to skip the Auth0 method selection pag
 
 **USB webcam:** If you use an external USB webcam instead of the built-in camera, set `CAMERA_INDEX=1` in `.env` (or `0` if the USB cam is the only/first device).
 
+**RTSP cameras:** Add a camera with type RTSP and the stream URL (e.g. `rtsp://192.168.1.100:554/stream`). The stream, match overlay, and RTMP Go Live all work for RTSP. Requires ffmpeg.
+
+### Test RTSP stream (MediaMTX + FFmpeg)
+
+To test RTSP without a real camera, use [MediaMTX](https://github.com/bluenviron/mediamtx) to receive the stream and FFmpeg to publish a test pattern. Install MediaMTX: `brew install mediamtx` (macOS).
+
+1. Create mediamtx.yml:
+
+```yml
+paths:
+  test:
+    source: publisher
+```
+
+1. **Terminal 1 – MediaMTX** (from project root):
+
+   ```bash
+   mediamtx mediamtx.yml
+   ```
+
+2. **Terminal 2 – FFmpeg** (publish a test pattern):
+
+   ```bash
+   ffmpeg -re -f lavfi -i "testsrc=size=1280x720:rate=30" -c:v libx264 -pix_fmt yuv420p -preset ultrafast -f rtsp rtsp://localhost:8554/test
+   ```
+
+3. In the app, add an RTSP camera with URL `rtsp://localhost:8554/test`.
+
 ## RTMP streaming (Go Live)
 
-RTMP export (YouTube, Facebook, etc.) uses **ffmpeg** to read the MJPEG stream and push to RTMP. The API requires ffmpeg to be installed and in `PATH`.
+RTMP export (YouTube, Facebook, etc.) uses **ffmpeg** to read the MJPEG stream and push to RTMP. Works for both internal and RTSP cameras. The API requires ffmpeg to be installed and in `PATH`.
 
 - **macOS:** `brew install ffmpeg`
 - **Ubuntu/Debian:** `sudo apt install ffmpeg`

@@ -324,6 +324,43 @@ where
     }
 }
 
+/// Extractor for stream endpoint: accepts either AuthenticatedUser or valid ?stream_token= for server-side RTMP pipeline.
+#[derive(Clone, Debug)]
+pub struct StreamAuth;
+
+#[async_trait]
+impl<S> FromRequestParts<S> for StreamAuth
+where
+    S: Send + Sync,
+    AppState: FromRef<S>,
+{
+    type Rejection = ApiError;
+
+    async fn from_request_parts(parts: &mut Parts, state: &S) -> Result<Self, Self::Rejection> {
+        let app_state = AppState::from_ref(state);
+
+        // Check for stream_token in query (used by RTMP pipeline)
+        if let Some(query) = parts.uri.query() {
+            for pair in query.split('&') {
+                if let Some((k, v)) = pair.split_once('=') {
+                    if k == "stream_token" {
+                        if let Ok(decoded) = urlencoding::decode(v) {
+                            if !decoded.is_empty() && decoded == app_state.stream_token {
+                                return Ok(StreamAuth);
+                            }
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Fall back to normal auth
+        let _ = AuthenticatedUser::from_request_parts(parts, state).await?;
+        Ok(StreamAuth)
+    }
+}
+
 /// GET /api/auth/me - Validate Bearer token, sync user to DB, return user info.
 pub async fn auth_me(
     State(app): State<AppState>,

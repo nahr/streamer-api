@@ -16,10 +16,7 @@ const theme = createTheme({
 const domain = import.meta.env.AUTH0_DOMAIN || ''
 const clientId = import.meta.env.AUTH0_CLIENT_ID || ''
 const audience = import.meta.env.AUTH0_AUDIENCE || ''
-// Debug: verify correct client ID is loaded (dev only)
-if (import.meta.env.DEV && clientId) {
-  console.log('[Auth0] Client ID loaded:', clientId.slice(0, 8) + '...')
-}
+
 // Optional: override redirect (e.g. http://127.0.0.1:5173 if localhost causes 403)
 const redirectUri = import.meta.env.AUTH0_REDIRECT_URI || window.location.origin
 // If true, skip audience (uses ID token instead of access token). Use when audience causes 403.
