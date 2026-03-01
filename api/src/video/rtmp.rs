@@ -2,13 +2,145 @@
 //! On macOS, uses FFmpeg direct capture (avfoundation + videotoolbox) for better framerate.
 //! When running in container, adds drawtext overlay: location (top left), camera name (underneath), time (top right).
 
+use std::path::Path;
 use std::sync::Arc;
+
+/// Resolve overlay path for ffmpeg input. Creates parent dir and returns canonical path string.
+fn resolve_overlay_path(overlay_path: &Path) -> Result<String, String> {
+    std::fs::create_dir_all(overlay_path.parent().unwrap_or(Path::new(".")))
+        .map_err(|e| format!("Failed to create data dir: {}", e))?;
+
+    let path = overlay_path
+        .canonicalize()
+        .or_else(|_| std::env::current_dir().map(|cwd| cwd.join(overlay_path)))
+        .map_err(|e| format!("Overlay path error: {}", e))?;
+    Ok(path.to_string_lossy().into_owned())
+}
+
+/// Spawn threads to capture stderr and monitor ffmpeg until stop signal or exit; then cleanup from rtmp registry.
+fn spawn_ffmpeg_monitor(
+    mut child: std::process::Child,
+    stop_rx: std::sync::mpsc::Receiver<()>,
+    rtmp: RtmpState,
+    id: String,
+) {
+    let stderr = child.stderr.take();
+    let stderr_done: Arc<std::sync::Mutex<Option<String>>> = Arc::new(std::sync::Mutex::new(None));
+    let stderr_done_clone = stderr_done.clone();
+    std::thread::spawn(move || {
+        if let Some(mut stderr) = stderr {
+            let mut buf = Vec::new();
+            let _ = std::io::Read::read_to_end(&mut stderr, &mut buf);
+            if !buf.is_empty() {
+                let s = String::from_utf8_lossy(&buf).into_owned();
+                *stderr_done_clone.lock().unwrap() = Some(s);
+            }
+        }
+    });
+
+    std::thread::spawn(move || {
+        loop {
+            match stop_rx.recv_timeout(std::time::Duration::from_millis(100)) {
+                Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            }
+
+            if child.try_wait().ok().flatten().is_some() {
+                if let Ok(guard) = stderr_done.lock() {
+                    if let Some(ref s) = *guard {
+                        tracing::error!(camera_id = %id, "RTMP: ffmpeg exited unexpectedly:\n{}", s);
+                    } else {
+                        tracing::warn!(camera_id = %id, "RTMP: ffmpeg process exited unexpectedly");
+                    }
+                }
+                break;
+            }
+        }
+
+        let _ = child.kill();
+        let _ = child.wait();
+        rtmp.write().unwrap().remove(&id);
+        tracing::info!(camera_id = %id, "RTMP: ffmpeg pipeline ended");
+    });
+}
 
 /// Escape text for ffmpeg drawtext filter (handles ', \, :).
 fn escape_drawtext(s: &str) -> String {
     s.replace('\\', "\\\\")
         .replace(':', "\\:")
         .replace('\'', "'\\''")
+}
+
+/// Build filter_complex: overlay + optional drawtext when in container.
+fn build_filter_complex(location_name: &str, camera_name: &str) -> String {
+    let base_filter = "[1:v]fps=30[main];[main][2:v]overlay=0:H-80";
+    if !std::path::Path::new("/.dockerenv").exists() {
+        return format!("{},format=yuv420p[out]", base_filter);
+    }
+    let font = "fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
+    let base = "fontsize=20:fontcolor=white";
+    let mut parts: Vec<String> = vec![];
+    if !location_name.is_empty() {
+        parts.push(format!(
+            "drawtext=text='{}':x=10:y=10:{}:{}",
+            escape_drawtext(location_name), base, font
+        ));
+    }
+    if !camera_name.is_empty() {
+        let y = if location_name.is_empty() { 10 } else { 35 };
+        parts.push(format!(
+            "drawtext=text='{}':x=10:y={}:{}:{}",
+            escape_drawtext(camera_name), y, base, font
+        ));
+    }
+    parts.push(format!(
+        "drawtext=text='%{{localtime\\:%H\\:%M\\:%S}}':x=w-text_w-10:y=10:{}:{}",
+        base, font
+    ));
+    let drawtext = parts.join(",");
+    format!("{},{},format=yuv420p[out]", base_filter, drawtext)
+}
+
+/// Shared FFmpeg args for RTMP output. Video input and encoder vary by source.
+fn build_rtmp_args(
+    video_input: &[&str],
+    overlay_path: &str,
+    filter_complex: &str,
+    encoder: &str,
+    encoder_extra: &[&str],
+    rtmp_url: &str,
+) -> Vec<String> {
+    let mut args: Vec<String> = vec![
+        "-y".into(),
+        "-f".into(), "lavfi".into(),
+        "-i".into(), "anullsrc=channel_layout=stereo:sample_rate=48000".into(),
+    ];
+    args.extend(video_input.iter().map(|s| s.to_string()));
+    args.extend([
+        "-f".into(), "image2".into(),
+        "-loop".into(), "1".into(),
+        "-i".into(), overlay_path.to_string(),
+        "-filter_complex".into(), filter_complex.to_string(),
+        "-map".into(), "[out]".into(),
+        "-map".into(), "0:a".into(),
+        "-c:v".into(), encoder.to_string(),
+    ]);
+    args.extend(encoder_extra.iter().map(|s| s.to_string()));
+    args.extend([
+        "-b:v".into(), "2000k".into(),
+        "-profile:v".into(), "high".into(),
+        "-level".into(), "4.1".into(),
+        "-g".into(), "60".into(),
+        "-keyint_min".into(), "60".into(),
+        "-c:a".into(), "aac".into(),
+        "-b:a".into(), "128k".into(),
+        "-ar".into(), "48000".into(),
+        "-ac".into(), "2".into(),
+        "-flvflags".into(), "no_duration_filesize".into(),
+        "-f".into(), "flv".into(),
+        rtmp_url.to_string(),
+    ]);
+    args
 }
 
 /// Active RTMP streams: camera_id -> (stop sender, rtmp_url). Send to stop; url used for restart.
@@ -89,15 +221,8 @@ fn spawn_rtmp_pipeline_direct(
     _location_name: &str,
     _camera_name: &str,
 ) -> Result<(), String> {
-    std::fs::create_dir_all(overlay_path.parent().unwrap_or(std::path::Path::new(".")))
-        .map_err(|e| format!("Failed to create data dir: {}", e))?;
-
-    let overlay_path_str = overlay_path
-        .canonicalize()
-        .or_else(|_| std::env::current_dir().map(|cwd| cwd.join(overlay_path)))
-        .map_err(|e| format!("Overlay path error: {}", e))?
-        .to_string_lossy()
-        .into_owned();
+    let overlay_path_str = resolve_overlay_path(overlay_path)?;
+    let camera_idx = camera_index.to_string();
 
     tracing::info!(
         overlay_path = %overlay_path_str,
@@ -105,114 +230,28 @@ fn spawn_rtmp_pipeline_direct(
         "RTMP: ffmpeg avfoundation + videotoolbox (direct capture)"
     );
 
-    // avfoundation: video only (:none = no audio). videotoolbox: hardware H.264 encode.
-    let mut child = std::process::Command::new("ffmpeg")
-        .args([
-            "-y",
-            // ========== AUDIO SOURCE ==========
-            "-f",
-            "lavfi",
-            "-i",
-            "anullsrc=channel_layout=stereo:sample_rate=48000",
-            // ========== VIDEO INPUT (avfoundation direct) ==========
-            "-f",
-            "avfoundation",
-            "-framerate",
-            "30",
-            "-video_size",
-            "1280x720",
-            "-pixel_format",
-            "uyvy422",
-            "-video_device_index",
-            &camera_index.to_string(),
-            "-i",
-            "0:none",
-            // ========== OVERLAY PNG ==========
-            "-f",
-            "image2",
-            "-loop",
-            "1",
-            "-i",
-            &overlay_path_str,
-            // ========== FILTER GRAPH ==========
-            "-filter_complex",
-            "[1:v]fps=30[main];[main][2:v]overlay=0:H-80,format=yuv420p[out]",
-            "-map",
-            "[out]",
-            "-map",
-            "0:a",
-            // ========== VIDEO ENCODER (videotoolbox hardware) ==========
-            "-c:v",
-            "h264_videotoolbox",
-            "-b:v",
-            "2000k",
-            "-profile:v",
-            "high",
-            "-level",
-            "4.1",
-            "-g",
-            "60",
-            "-keyint_min",
-            "60",
-            // ========== AUDIO ENCODER ==========
-            "-c:a",
-            "aac",
-            "-b:a",
-            "128k",
-            "-ar",
-            "48000",
-            "-ac",
-            "2",
-            // ========== MUX (flvflags helps RTMPS/Facebook) ==========
-            "-flvflags",
-            "no_duration_filesize",
-            "-f",
-            "flv",
-            rtmp_url,
-        ])
+    let video_input = [
+        "-f", "avfoundation", "-framerate", "30", "-video_size", "1280x720",
+        "-pixel_format", "uyvy422", "-video_device_index", &camera_idx, "-i", "0:none",
+    ];
+    let filter = "[1:v]fps=30[main];[main][2:v]overlay=0:H-80,format=yuv420p[out]";
+    let args = build_rtmp_args(
+        &video_input,
+        &overlay_path_str,
+        filter,
+        "h264_videotoolbox",
+        &[],
+        rtmp_url,
+    );
+
+    let child = std::process::Command::new("ffmpeg")
+        .args(args)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| format!("Failed to spawn ffmpeg: {}. Ensure ffmpeg is installed.", e))?;
 
-    let stderr = child.stderr.take();
-    let stderr_done: Arc<std::sync::Mutex<Option<String>>> = Arc::new(std::sync::Mutex::new(None));
-    let stderr_done_clone = stderr_done.clone();
-    std::thread::spawn(move || {
-        if let Some(mut stderr) = stderr {
-            let mut buf = Vec::new();
-            let _ = std::io::Read::read_to_end(&mut stderr, &mut buf);
-            if !buf.is_empty() {
-                let s = String::from_utf8_lossy(&buf).into_owned();
-                *stderr_done_clone.lock().unwrap() = Some(s);
-            }
-        }
-    });
-
-    std::thread::spawn(move || {
-        loop {
-            match stop_rx.recv_timeout(std::time::Duration::from_millis(100)) {
-                Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
-            }
-
-            if child.try_wait().ok().flatten().is_some() {
-                if let Ok(guard) = stderr_done.lock() {
-                    if let Some(ref s) = *guard {
-                        tracing::error!(camera_id = %id, "RTMP: ffmpeg exited unexpectedly:\n{}", s);
-                    } else {
-                        tracing::warn!(camera_id = %id, "RTMP: ffmpeg process exited unexpectedly");
-                    }
-                }
-                break;
-            }
-        }
-
-        let _ = child.kill();
-        let _ = child.wait();
-        rtmp.write().unwrap().remove(&id);
-        tracing::info!(camera_id = %id, "RTMP: ffmpeg pipeline ended");
-    });
+    spawn_ffmpeg_monitor(child, stop_rx, rtmp, id);
 
     Ok(())
 }
@@ -229,154 +268,43 @@ fn spawn_rtmp_pipeline_mjpeg(
     location_name: &str,
     camera_name: &str,
 ) -> Result<(), String> {
-    std::fs::create_dir_all(overlay_path.parent().unwrap_or(std::path::Path::new(".")))
-        .map_err(|e| format!("Failed to create data dir: {}", e))?;
+    let overlay_path_str = resolve_overlay_path(overlay_path)?;
 
-    let overlay_path_str = overlay_path
-        .canonicalize()
-        .or_else(|_| std::env::current_dir().map(|cwd| cwd.join(overlay_path)))
-        .map_err(|e| format!("Overlay path error: {}", e))?
-        .to_string_lossy()
-        .into_owned();
-
-    let encoder = if cfg!(target_os = "macos") {
-        "h264_videotoolbox"
+    let (encoder, encoder_extra) = if cfg!(target_os = "macos") {
+        ("h264_videotoolbox", [].as_slice())
     } else {
-        "libx264"
+        (
+            "libx264",
+            [
+                "-preset", "ultrafast", "-tune", "zerolatency", "-pix_fmt", "yuv420p",
+                "-maxrate", "2000k", "-bufsize", "4000k",
+                "-x264-params", "scenecut=0:open_gop=0:min-keyint=60",
+                "-bf", "2", "-fps_mode", "cfr",
+            ]
+            .as_slice(),
+        )
     };
     tracing::info!(overlay_path = %overlay_path_str, encoder = %encoder, "RTMP: ffmpeg PNG overlay");
 
-    // Build filter: overlay + optional drawtext when in container
-    let in_container = std::path::Path::new("/.dockerenv").exists();
-    let filter_complex = if in_container {
-        let font = "fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
-        let base = "fontsize=20:fontcolor=white";
-        let mut parts: Vec<String> = vec![];
-        if !location_name.is_empty() {
-            parts.push(format!(
-                "drawtext=text='{}':x=10:y=10:{}:{}",
-                escape_drawtext(location_name),
-                base,
-                font
-            ));
-        }
-        if !camera_name.is_empty() {
-            let y = if location_name.is_empty() { 10 } else { 35 };
-            parts.push(format!(
-                "drawtext=text='{}':x=10:y={}:{}:{}",
-                escape_drawtext(camera_name),
-                y,
-                base,
-                font
-            ));
-        }
-        // Time at top right (always shown in container)
-        parts.push(format!(
-            "drawtext=text='%{{localtime\\:%H\\:%M\\:%S}}':x=w-text_w-10:y=10:{}:{}",
-            base, font
-        ));
-        let drawtext = parts.join(",");
-        format!(
-            "[1:v]fps=30[main];[main][2:v]overlay=0:H-80,{},format=yuv420p[out]",
-            drawtext
-        )
-    } else {
-        "[1:v]fps=30[main];[main][2:v]overlay=0:H-80,format=yuv420p[out]".into()
-    };
+    let video_input = ["-f", "mjpeg", "-r", "30", "-i", stream_url];
+    let filter = build_filter_complex(location_name, camera_name);
+    let args = build_rtmp_args(
+        &video_input,
+        &overlay_path_str,
+        &filter,
+        encoder,
+        encoder_extra,
+        rtmp_url,
+    );
 
-    // Common args: inputs and filter
-    let mut args: Vec<String> = vec![
-        "-y".into(),
-        "-f".into(), "lavfi".into(),
-        "-i".into(), "anullsrc=channel_layout=stereo:sample_rate=48000".into(),
-        "-f".into(), "mjpeg".into(),
-        "-r".into(), "30".into(),
-        "-i".into(), stream_url.to_string(),
-        "-f".into(), "image2".into(),
-        "-loop".into(), "1".into(),
-        "-i".into(), overlay_path_str.clone(),
-        "-filter_complex".into(),
-        filter_complex,
-        "-map".into(), "[out]".into(),
-        "-map".into(), "0:a".into(),
-        "-c:v".into(), encoder.into(),
-        "-b:v".into(), "2000k".into(),
-        "-profile:v".into(), "high".into(),
-        "-level".into(), "4.1".into(),
-        "-g".into(), "60".into(),
-        "-keyint_min".into(), "60".into(),
-        "-c:a".into(), "aac".into(),
-        "-b:a".into(), "128k".into(),
-        "-ar".into(), "48000".into(),
-        "-ac".into(), "2".into(),
-        "-flvflags".into(), "no_duration_filesize".into(),
-        "-f".into(), "flv".into(),
-        rtmp_url.to_string(),
-    ];
-
-    // Platform-specific encoder options
-    if cfg!(target_os = "macos") {
-        // videotoolbox: minimal options, hardware handles the rest
-    } else {
-        // libx264: ultrafast for lowest CPU, zerolatency for live
-        let insert_idx = args.iter().position(|a| a == "-keyint_min").unwrap() + 2;
-        args.splice(insert_idx..insert_idx, [
-            "-preset".into(), "ultrafast".into(),
-            "-tune".into(), "zerolatency".into(),
-            "-pix_fmt".into(), "yuv420p".into(),
-            "-maxrate".into(), "2000k".into(),
-            "-bufsize".into(), "4000k".into(),
-            "-x264-params".into(), "scenecut=0:open_gop=0:min-keyint=60".into(),
-            "-bf".into(), "2".into(),
-            "-fps_mode".into(), "cfr".into(),
-        ]);
-    }
-
-    let mut child = std::process::Command::new("ffmpeg")
+    let child = std::process::Command::new("ffmpeg")
         .args(args)
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::piped())
         .spawn()
         .map_err(|e| format!("Failed to spawn ffmpeg: {}. Ensure ffmpeg is installed.", e))?;
 
-    let stderr = child.stderr.take();
-    let stderr_done: Arc<std::sync::Mutex<Option<String>>> = Arc::new(std::sync::Mutex::new(None));
-    let stderr_done_clone = stderr_done.clone();
-    std::thread::spawn(move || {
-        if let Some(mut stderr) = stderr {
-            let mut buf = Vec::new();
-            let _ = std::io::Read::read_to_end(&mut stderr, &mut buf);
-            if !buf.is_empty() {
-                let s = String::from_utf8_lossy(&buf).into_owned();
-                *stderr_done_clone.lock().unwrap() = Some(s);
-            }
-        }
-    });
-
-    std::thread::spawn(move || {
-        loop {
-            match stop_rx.recv_timeout(std::time::Duration::from_millis(100)) {
-                Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
-                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
-            }
-
-            if child.try_wait().ok().flatten().is_some() {
-                if let Ok(guard) = stderr_done.lock() {
-                    if let Some(ref s) = *guard {
-                        tracing::error!(camera_id = %id, "RTMP: ffmpeg exited unexpectedly:\n{}", s);
-                    } else {
-                        tracing::warn!(camera_id = %id, "RTMP: ffmpeg process exited unexpectedly");
-                    }
-                }
-                break;
-            }
-        }
-
-        let _ = child.kill();
-        let _ = child.wait();
-        rtmp.write().unwrap().remove(&id);
-        tracing::info!(camera_id = %id, "RTMP: ffmpeg pipeline ended");
-    });
+    spawn_ffmpeg_monitor(child, stop_rx, rtmp, id);
 
     Ok(())
 }
