@@ -13,7 +13,6 @@ import {
   DialogContent,
   DialogActions,
   TextField,
-  IconButton,
   Stack,
   FormControl,
   InputLabel,
@@ -21,8 +20,6 @@ import {
   MenuItem,
 } from '@mui/material'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
-import AddIcon from '@mui/icons-material/Add'
-import RemoveIcon from '@mui/icons-material/Remove'
 import HistoryIcon from '@mui/icons-material/History'
 import StopIcon from '@mui/icons-material/Stop'
 import LiveTvIcon from '@mui/icons-material/LiveTv'
@@ -31,49 +28,10 @@ import { getCamera, getFacebookLiveUrl, getFacebookStatus, getRtmpStreamStatus, 
 import { getMatch, updateScore, endMatch } from '../api/poolMatches.js'
 import { useApiInfo } from '../../../apiInfoStore.jsx'
 import { getToken, urlWithToken } from '../../../apiClient.js'
-
-function LiveTimestamp() {
-  const [now, setNow] = useState(() => new Date())
-  useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 1000)
-    return () => clearInterval(id)
-  }, [])
-  return now.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })
-}
-
-function formatTime(ms) {
-  const d = new Date(ms)
-  return d.toLocaleString(undefined, {
-    dateStyle: 'medium',
-    timeStyle: 'short',
-  })
-}
-
-function formatDuration(ms) {
-  const totalSeconds = Math.floor(ms / 1000)
-  const hours = Math.floor(totalSeconds / 3600)
-  const minutes = Math.floor((totalSeconds % 3600) / 60)
-  const seconds = totalSeconds % 60
-  if (hours > 0) {
-    return `${hours}h ${minutes}m ${seconds}s`
-  }
-  if (minutes > 0) {
-    return `${minutes}m ${seconds}s`
-  }
-  return `${seconds}s`
-}
-
-function MatchDuration({ match }) {
-  const [now, setNow] = useState(Date.now())
-  useEffect(() => {
-    if (match.end_time) return
-    const id = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(id)
-  }, [match.end_time])
-  const endMs = match.end_time ?? now
-  const durationMs = endMs - match.start_time
-  return <>{formatDuration(durationMs)}</>
-}
+import { MatchDuration } from '../../../components/MatchDuration.jsx'
+import { StreamPreview } from '../components/StreamPreview.jsx'
+import { MatchScoreControls } from '../components/MatchScoreControls.jsx'
+import { formatTime, formatMatchWinner, getMatchWinner } from '../../../utils/format.js'
 
 export function Match() {
   const { id } = useParams()
@@ -330,13 +288,7 @@ export function Match() {
 
   const score = `${match.player_one.games_won} - ${match.player_two.games_won}`
   const isActive = !match.end_time
-  const winner = isActive
-    ? null
-    : match.player_one.games_won >= match.player_one.race_to
-      ? match.player_one.name
-      : match.player_two.games_won >= match.player_two.race_to
-        ? match.player_two.name
-        : null
+  const winner = getMatchWinner(match)
   const parsed = parseCameraType(camera?.camera_type)
   const hasStream = camera && (parsed.type === 'internal' || parsed.type === 'rtsp')
 
@@ -356,7 +308,7 @@ export function Match() {
           {isActive && <Chip label="In progress" color="primary" size="small" />}
           {match.end_time && (
             <Chip
-              label={winner ? `${winner} won` : 'Ended early'}
+              label={formatMatchWinner(match)}
               color="default"
               size="small"
             />
@@ -385,7 +337,7 @@ export function Match() {
           </Box>
         )}
 
-        {hasStream && (
+        {hasStream && camera && (
           <Box sx={{ mt: 2, position: 'relative', display: 'inline-block' }}>
             <Box sx={{ display: 'flex', gap: 1, mb: 2, flexWrap: 'wrap' }}>
               <Button
@@ -408,187 +360,23 @@ export function Match() {
                 </Button>
               )}
             </Box>
-            <Box sx={{ position: 'relative', display: 'inline-block' }}>
-              {rtmpActive && parsed.type === 'internal' ? (
-                <Box
-                  sx={{
-                    width: '100%',
-                    maxWidth: 640,
-                    height: 360,
-                    borderRadius: 8,
-                    backgroundColor: '#000',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: 'rgba(255,255,255,0.7)',
-                  }}
-                >
-                  <Typography>Stream is live — preview unavailable</Typography>
-                </Box>
-              ) : streamError ? (
-                <Box
-                  sx={{
-                    width: '100%',
-                    maxWidth: 640,
-                    aspectRatio: '16/9',
-                    borderRadius: 8,
-                    backgroundColor: '#000',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: 'rgba(255,255,255,0.7)',
-                    flexDirection: 'column',
-                    gap: 1,
-                  }}
-                >
-                  <Typography>Stream unavailable</Typography>
-                  <Typography variant="body2" sx={{ opacity: 0.8 }}>
-                    {parsed.type === 'rtsp'
-                      ? 'Check that the RTSP URL is valid and reachable'
-                      : 'Ensure you are logged in and the camera is available'}
-                  </Typography>
-                  <Button
-                    size="small"
-                    variant="outlined"
-                    onClick={() => { setStreamError(false); setPreviewLoaded(false); getToken().then((t) => setStreamUrl(urlWithToken(`/api/cameras/${camera.id}/stream`, t))) }}
-                    sx={{ mt: 1 }}
-                  >
-                    Retry
-                  </Button>
-                </Box>
-              ) : !streamUrl ? (
-                <Box
-                  sx={{
-                    width: '100%',
-                    maxWidth: 640,
-                    aspectRatio: '16/9',
-                    borderRadius: 8,
-                    backgroundColor: '#000',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: 'rgba(255,255,255,0.7)',
-                    flexDirection: 'column',
-                    gap: 1,
-                  }}
-                >
-                  <CircularProgress size={24} />
-                  <Typography variant="body2">Connecting to stream…</Typography>
-                </Box>
-              ) : (
-                <>
-                  <img
-                    src={streamUrl}
-                    alt={`${camera.name} live stream`}
-                    onLoad={() => setPreviewLoaded(true)}
-                    onError={() => setStreamError(true)}
-                    style={{
-                      width: '100%',
-                      maxWidth: 640,
-                      borderRadius: 8,
-                      backgroundColor: '#000',
-                      display: 'block',
-                    }}
-                  />
-                  {previewLoaded && (
-                    <>
-                      <Box
-                        sx={{
-                          position: 'absolute',
-                          top: 8,
-                          left: 8,
-                          background: 'rgba(0,0,0,0.7)',
-                          color: '#fff',
-                          px: 1.5,
-                          py: 1,
-                          borderRadius: 1,
-                          fontSize: '0.875rem',
-                        }}
-                      >
-                        {locationName && (
-                          <Box component="div" sx={{ fontWeight: 600, mb: 0.25 }}>
-                            {locationName}
-                          </Box>
-                        )}
-                        <Box component="div" sx={{ fontSize: '0.75rem', opacity: 0.9 }}>
-                          {camera.name}
-                        </Box>
-                      </Box>
-                      <Box
-                        sx={{
-                          position: 'absolute',
-                          top: 8,
-                          right: 8,
-                          background: 'rgba(0,0,0,0.7)',
-                          color: '#fff',
-                          px: 1.5,
-                          py: 1,
-                          borderRadius: 1,
-                          fontSize: '0.875rem',
-                          fontVariantNumeric: 'tabular-nums',
-                        }}
-                      >
-                        <LiveTimestamp />
-                      </Box>
-                      {isActive && (
-                        <Box
-                          sx={{
-                            position: 'absolute',
-                            bottom: 0,
-                            left: 0,
-                            right: 0,
-                            background: 'rgba(0,0,0,0.9)',
-                            color: '#fff',
-                            py: 1.25,
-                            px: 2,
-                            borderRadius: '0 0 8px 8px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            gap: 2,
-                          }}
-                        >
-                          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', minWidth: 0, flex: 1 }}>
-                            <Typography variant="subtitle2" fontWeight={600} noWrap sx={{ maxWidth: '100%' }}>
-                              {match.player_one.name}
-                            </Typography>
-                            {match.player_one.rating && (
-                              <Typography variant="caption" color="rgba(255,255,255,0.8)">
-                                {match.player_one.rating.type} {match.player_one.rating.value}
-                              </Typography>
-                            )}
-                          </Box>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexShrink: 0 }}>
-                            <Box sx={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 32, height: 32, borderRadius: '50%', border: '2px solid #fff' }}>
-                              <Typography variant="subtitle1" fontWeight={700}>{match.player_one.games_won}</Typography>
-                            </Box>
-                            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
-                              <Typography variant="caption" color="rgba(255,255,255,0.8)">race to</Typography>
-                              <Typography variant="caption" color="rgba(255,255,255,0.8)">
-                                {match.player_one.race_to}/{match.player_two.race_to}
-                              </Typography>
-                            </Box>
-                            <Box sx={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 32, height: 32, borderRadius: '50%', border: '2px solid #fff' }}>
-                              <Typography variant="subtitle1" fontWeight={700}>{match.player_two.games_won}</Typography>
-                            </Box>
-                          </Box>
-                          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', minWidth: 0, flex: 1 }}>
-                            <Typography variant="subtitle2" fontWeight={600} noWrap sx={{ maxWidth: '100%' }}>
-                              {match.player_two.name}
-                            </Typography>
-                            {match.player_two.rating && (
-                              <Typography variant="caption" color="rgba(255,255,255,0.8)">
-                                {match.player_two.rating.type} {match.player_two.rating.value}
-                              </Typography>
-                            )}
-                          </Box>
-                        </Box>
-                      )}
-                    </>
-                  )}
-                </>
-              )}
-            </Box>
+            <StreamPreview
+              streamUrl={streamUrl}
+              streamError={streamError}
+              previewLoaded={previewLoaded}
+              setPreviewLoaded={setPreviewLoaded}
+              onRetry={() => {
+                setStreamError(false)
+                setPreviewLoaded(false)
+                getToken().then((t) => setStreamUrl(urlWithToken(`/api/cameras/${camera.id}/stream`, t)))
+              }}
+              onStreamError={() => setStreamError(true)}
+              rtmpActive={rtmpActive}
+              cameraType={parsed.type}
+              cameraName={camera.name}
+              locationName={locationName}
+              overlayMatch={isActive ? match : null}
+            />
           </Box>
         )}
 
@@ -602,77 +390,15 @@ export function Match() {
             )}
           </Box>
           {isActive ? (
-            <Stack spacing={2}>
-              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems="center" flexWrap="wrap">
-                <Box display="flex" alignItems="center" gap={0.5}>
-                  <IconButton
-                    size="small"
-                    onClick={() => handleScoreChange(1, -1)}
-                    disabled={scoreUpdating || match.player_one.games_won === 0}
-                    aria-label="Decrease player 1 score"
-                  >
-                    <RemoveIcon />
-                  </IconButton>
-                  <Typography variant="h5" component="span" sx={{ minWidth: 40, textAlign: 'center' }}>
-                    {match.player_one.games_won}
-                  </Typography>
-                  <IconButton
-                    size="small"
-                    onClick={() => handleScoreChange(1, 1)}
-                    disabled={scoreUpdating || match.player_one.games_won >= match.player_one.race_to}
-                    aria-label="Increase player 1 score"
-                  >
-                    <AddIcon />
-                  </IconButton>
-                  <Typography sx={{ ml: 1 }}>{match.player_one.name}</Typography>
-                  <Typography color="text.secondary" variant="body2" sx={{ ml: 0.5 }}>
-                    (race to {match.player_one.race_to})
-                  </Typography>
-                </Box>
-                <Typography color="text.secondary">vs</Typography>
-                <Box display="flex" alignItems="center" gap={0.5}>
-                  <IconButton
-                    size="small"
-                    onClick={() => handleScoreChange(2, -1)}
-                    disabled={scoreUpdating || match.player_two.games_won === 0}
-                    aria-label="Decrease player 2 score"
-                  >
-                    <RemoveIcon />
-                  </IconButton>
-                  <Typography variant="h5" component="span" sx={{ minWidth: 40, textAlign: 'center' }}>
-                    {match.player_two.games_won}
-                  </Typography>
-                  <IconButton
-                    size="small"
-                    onClick={() => handleScoreChange(2, 1)}
-                    disabled={scoreUpdating || match.player_two.games_won >= match.player_two.race_to}
-                    aria-label="Increase player 2 score"
-                  >
-                    <AddIcon />
-                  </IconButton>
-                  <Typography sx={{ ml: 1 }}>{match.player_two.name}</Typography>
-                  <Typography color="text.secondary" variant="body2" sx={{ ml: 0.5 }}>
-                    (race to {match.player_two.race_to})
-                  </Typography>
-                </Box>
-              </Stack>
-              <Button
-                startIcon={<StopIcon />}
-                variant="outlined"
-                color="secondary"
-                onClick={handleEndMatch}
-                disabled={scoreUpdating}
-              >
-                End match early
-              </Button>
-            </Stack>
+            <MatchScoreControls
+              match={match}
+              scoreUpdating={scoreUpdating}
+              onScoreChange={handleScoreChange}
+              onEndMatch={handleEndMatch}
+            />
           ) : (
             <Typography color="text.secondary" variant="body2">
-              {match.player_one.games_won >= match.player_one.race_to
-                ? `${match.player_one.name} won`
-                : match.player_two.games_won >= match.player_two.race_to
-                  ? `${match.player_two.name} won`
-                  : 'Match ended early'}
+              {formatMatchWinner(match)}
             </Typography>
           )}
         </Box>

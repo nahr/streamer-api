@@ -8,8 +8,7 @@ use axum::{
 };
 use bytes::Bytes;
 use polodb_core::bson::oid::ObjectId;
-use std::io::Read;
-use std::process::{Child, ChildStdout, Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, RwLock};
 use tokio::sync::broadcast;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
@@ -18,7 +17,7 @@ use crate::api::auth::{AuthenticatedUser, StreamAuth};
 use crate::api::AppState;
 use crate::db::camera::CameraType;
 use crate::error::ApiError;
-use crate::video::{overlay, rtmp, rtsp_camera, CameraSource};
+use crate::video::{mjpeg, overlay, rtmp, rtsp_camera, CameraSource};
 
 const MJPEG_BOUNDARY: &str = "frame";
 
@@ -32,50 +31,6 @@ pub struct InternalCameraState {
 impl CameraSource for InternalCameraState {
     fn subscribe(&self) -> broadcast::Receiver<Bytes> {
         self.tx.subscribe()
-    }
-}
-
-/// Parse MJPEG stream from FFmpeg stdout into individual JPEG frames.
-/// JPEG frames start with FF D8 and end with FF D9.
-fn extract_jpeg_frames(mut reader: ChildStdout, tx: broadcast::Sender<Bytes>) {
-    let mut buf = [0u8; 65536];
-    let mut frame = Vec::new();
-    let mut in_frame = false;
-
-    loop {
-        match reader.read(&mut buf) {
-            Ok(0) => break,
-            Ok(n) => {
-                let chunk = &buf[..n];
-                let mut i = 0;
-                while i < chunk.len() {
-                    if !in_frame {
-                        if i + 1 < chunk.len() && chunk[i] == 0xFF && chunk[i + 1] == 0xD8 {
-                            in_frame = true;
-                            frame.clear();
-                            frame.extend_from_slice(&chunk[i..]);
-                            i = chunk.len();
-                        } else {
-                            i += 1;
-                        }
-                    } else {
-                        frame.extend_from_slice(&chunk[i..]);
-                        if let Some(pos) =
-                            frame.windows(2).rposition(|w| w[0] == 0xFF && w[1] == 0xD9)
-                        {
-                            let end = pos + 2;
-                            let jpeg = frame.drain(..end).collect::<Vec<_>>();
-                            let _ = tx.send(Bytes::from(jpeg));
-                            in_frame = false;
-                            i = chunk.len();
-                        } else {
-                            i = chunk.len();
-                        }
-                    }
-                }
-            }
-            Err(_) => break,
-        }
     }
 }
 
@@ -138,7 +93,7 @@ fn spawn_preview_ffmpeg(camera_index: u32) -> Option<Child> {
                 let (tx, _) = broadcast::channel(16);
                 let state = Arc::new(InternalCameraState { tx: tx.clone() });
                 *INTERNAL_CAMERA.write().unwrap() = Some(state);
-                std::thread::spawn(move || extract_jpeg_frames(stdout, tx));
+                std::thread::spawn(move || mjpeg::extract_jpeg_frames(stdout, tx));
             }
             Some(c)
         }

@@ -1,12 +1,11 @@
 //! RTSP camera streaming via FFmpeg. Reads from rtsp:// URL and outputs MJPEG.
 
 use std::collections::HashMap;
-use std::io::Read;
-use std::process::{Child, ChildStdout, Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, RwLock};
 use tokio::sync::broadcast;
 
-use crate::video::CameraSource;
+use crate::video::{mjpeg, CameraSource};
 
 /// Shared state for an RTSP camera stream.
 pub struct RtspCameraState {
@@ -16,47 +15,6 @@ pub struct RtspCameraState {
 impl CameraSource for RtspCameraState {
     fn subscribe(&self) -> broadcast::Receiver<bytes::Bytes> {
         self.tx.subscribe()
-    }
-}
-
-/// Parse MJPEG stream from FFmpeg stdout into individual JPEG frames.
-fn extract_jpeg_frames(mut reader: ChildStdout, tx: broadcast::Sender<bytes::Bytes>) {
-    let mut buf = [0u8; 65536];
-    let mut frame = Vec::new();
-    let mut in_frame = false;
-
-    loop {
-        match reader.read(&mut buf) {
-            Ok(0) => break,
-            Ok(n) => {
-                let chunk = &buf[..n];
-                let mut i = 0;
-                while i < chunk.len() {
-                    if !in_frame {
-                        if i + 1 < chunk.len() && chunk[i] == 0xFF && chunk[i + 1] == 0xD8 {
-                            in_frame = true;
-                            frame.clear();
-                            frame.extend_from_slice(&chunk[i..]);
-                            i = chunk.len();
-                        } else {
-                            i += 1;
-                        }
-                    } else {
-                        frame.extend_from_slice(&chunk[i..]);
-                        if let Some(pos) = frame.windows(2).rposition(|w| w[0] == 0xFF && w[1] == 0xD9) {
-                            let end = pos + 2;
-                            let jpeg = frame.drain(..end).collect::<Vec<_>>();
-                            let _ = tx.send(bytes::Bytes::from(jpeg));
-                            in_frame = false;
-                            i = chunk.len();
-                        } else {
-                            i = chunk.len();
-                        }
-                    }
-                }
-            }
-            Err(_) => break,
-        }
     }
 }
 
@@ -80,7 +38,7 @@ fn spawn_rtsp_ffmpeg(rtsp_url: &str) -> Option<(Child, broadcast::Sender<bytes::
             if let Some(stdout) = c.stdout.take() {
                 let (tx, _) = broadcast::channel(16);
                 let tx_clone = tx.clone();
-                std::thread::spawn(move || extract_jpeg_frames(stdout, tx_clone));
+                std::thread::spawn(move || mjpeg::extract_jpeg_frames(stdout, tx_clone));
                 Some((c, tx))
             } else {
                 None

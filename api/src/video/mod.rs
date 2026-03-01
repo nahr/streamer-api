@@ -4,6 +4,7 @@ use bytes::Bytes;
 use tokio::sync::broadcast;
 
 mod internal_camera;
+mod mjpeg;
 mod overlay;
 mod rtsp_camera;
 mod rtmp;

@@ -21,30 +21,7 @@ import {
 } from '@mui/material'
 import DeleteIcon from '@mui/icons-material/Delete'
 import { listMatches, deleteMatch } from '../../cameras/api/poolMatches.js'
-
-function formatTime(ms) {
-  const d = new Date(ms)
-  return d.toLocaleString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    hour: 'numeric',
-    minute: '2-digit',
-  })
-}
-
-function formatDuration(ms) {
-  const totalSeconds = Math.floor(ms / 1000)
-  const hours = Math.floor(totalSeconds / 3600)
-  const minutes = Math.floor((totalSeconds % 3600) / 60)
-  const seconds = totalSeconds % 60
-  if (hours > 0) {
-    return `${hours}h ${minutes}m`
-  }
-  if (minutes > 0) {
-    return `${minutes}m ${seconds}s`
-  }
-  return `${seconds}s`
-}
+import { formatTime, formatDuration, formatMatchWinner } from '../../../utils/format.js'
 
 export function MatchesSettings() {
   const [matches, setMatches] = useState([])
@@ -142,19 +119,13 @@ export function MatchesSettings() {
                       </TableCell>
                       <TableCell>{score}</TableCell>
                       <TableCell>{match.camera_name}</TableCell>
-                      <TableCell>{formatTime(match.start_time)}</TableCell>
+                      <TableCell>{formatTime(match.start_time, 'full')}</TableCell>
                       <TableCell>{match.started_by ?? '—'}</TableCell>
-                      <TableCell>{formatDuration(durationMs)}</TableCell>
+                      <TableCell>{formatDuration(durationMs, { includeSeconds: false })}</TableCell>
                       <TableCell>
                         {match.end_time ? (
                           <Chip
-                            label={
-                              match.player_one.games_won >= match.player_one.race_to
-                                ? `${match.player_one.name} won`
-                                : match.player_two.games_won >= match.player_two.race_to
-                                  ? `${match.player_two.name} won`
-                                  : 'Ended early'
-                            }
+                            label={formatMatchWinner(match)}
                             size="small"
                             color="default"
                           />

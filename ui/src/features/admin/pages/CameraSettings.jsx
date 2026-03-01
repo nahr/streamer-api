@@ -32,6 +32,7 @@ import {
   updateCamera,
   deleteCamera,
   parseCameraType,
+  formatCameraType,
 } from '../../../features/cameras/api/cameras.js'
 
 const CAMERA_TYPES = [
@@ -188,13 +189,6 @@ export function CameraSettings() {
     } finally {
       setSubmitLoading(false)
     }
-  }
-
-  const formatCameraType = (cameraType) => {
-    const parsed = parseCameraType(cameraType)
-    if (parsed.type === 'rtsp') return `RTSP: ${parsed.url || '(no url)'}`
-    if (parsed.type === 'usb') return `USB: ${parsed.device || '(no device)'}`
-    return 'Internal'
   }
 
   return (

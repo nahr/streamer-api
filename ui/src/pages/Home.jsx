@@ -14,53 +14,10 @@ import {
 import VideocamIcon from '@mui/icons-material/Videocam'
 import SportsEsportsIcon from '@mui/icons-material/SportsEsports'
 import { useAuth } from '../authStore.jsx'
-import { listCameras, parseCameraType } from '../features/cameras/api/cameras.js'
+import { listCameras, formatCameraType, parseCameraType } from '../features/cameras/api/cameras.js'
 import { listMatches } from '../features/cameras/api/poolMatches.js'
-
-function formatCameraType(cameraType) {
-  const parsed = parseCameraType(cameraType)
-  if (parsed.type === 'rtsp') return `RTSP: ${parsed.url || '(no url)'}`
-  if (parsed.type === 'usb') return `USB: ${parsed.device || '(no device)'}`
-  return 'Internal'
-}
-
-function formatTime(ms) {
-  const d = new Date(ms)
-  return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
-}
-
-function formatDuration(ms) {
-  const totalSeconds = Math.floor(ms / 1000)
-  const hours = Math.floor(totalSeconds / 3600)
-  const minutes = Math.floor((totalSeconds % 3600) / 60)
-  const seconds = totalSeconds % 60
-  if (hours > 0) {
-    return `${hours}h ${minutes}m ${seconds}s`
-  }
-  if (minutes > 0) {
-    return `${minutes}m ${seconds}s`
-  }
-  return `${seconds}s`
-}
-
-function getMatchWinner(match) {
-  if (!match.end_time) return null
-  if (match.player_one.games_won >= match.player_one.race_to) return match.player_one.name
-  if (match.player_two.games_won >= match.player_two.race_to) return match.player_two.name
-  return null
-}
-
-function MatchDuration({ match }) {
-  const [now, setNow] = useState(Date.now())
-  useEffect(() => {
-    if (match.end_time) return
-    const id = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(id)
-  }, [match.end_time])
-  const endMs = match.end_time ?? now
-  const durationMs = endMs - match.start_time
-  return <>{formatDuration(durationMs)}</>
-}
+import { MatchDuration } from '../components/MatchDuration.jsx'
+import { formatTime, getMatchWinner } from '../utils/format.js'
 
 export function Home() {
   const navigate = useNavigate()
@@ -153,7 +110,7 @@ export function Home() {
               const winner = getMatchWinner(match)
               const secondary = (
                 <>
-                  {formatTime(match.start_time)}
+                  {formatTime(match.start_time, 'short')}
                   {match.camera_name && <> · {match.camera_name}</>}
                   {' · '}
                   <MatchDuration match={match} />

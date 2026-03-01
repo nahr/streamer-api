@@ -36,6 +36,25 @@ function buildCameraType(type, url = '', device = '') {
 }
 
 /**
+ * Format camera type for display.
+ * @param {Camera['camera_type']} cameraType
+ * @param {'label'|'string'} [format='string'] - label: { label, detail }; string: "RTSP: url" etc
+ * @returns {{ label: string, detail: string|null }|string}
+ */
+export function formatCameraType(cameraType, format = 'string') {
+  const parsed = parseCameraType(cameraType)
+  if (parsed.type === 'rtsp') {
+    const str = `RTSP: ${parsed.url || '(no url)'}`
+    return format === 'label' ? { label: 'RTSP', detail: parsed.url || '(no url)' } : str
+  }
+  if (parsed.type === 'usb') {
+    const str = `USB: ${parsed.device || '(no device)'}`
+    return format === 'label' ? { label: 'USB', detail: parsed.device || '(no device)' } : str
+  }
+  return format === 'label' ? { label: 'Internal', detail: null } : 'Internal'
+}
+
+/**
  * Parse camera_type from API response to { type, url?, device? }.
  * @param {Camera['camera_type']} cameraType
  * @returns {{ type: CameraTypeKey, url?: string, device?: string }}
