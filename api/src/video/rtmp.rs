@@ -1,7 +1,15 @@
 //! RTMP streaming pipeline. Spawns ffmpeg to read MJPEG from stream URL and push to RTMP.
 //! On macOS, uses FFmpeg direct capture (avfoundation + videotoolbox) for better framerate.
+//! When running in container, adds drawtext overlay: location (top left), camera name (underneath), time (top right).
 
 use std::sync::Arc;
+
+/// Escape text for ffmpeg drawtext filter (handles ', \, :).
+fn escape_drawtext(s: &str) -> String {
+    s.replace('\\', "\\\\")
+        .replace(':', "\\:")
+        .replace('\'', "'\\''")
+}
 
 /// Active RTMP streams: camera_id -> (stop sender, rtmp_url). Send to stop; url used for restart.
 pub type RtmpState =
@@ -13,6 +21,7 @@ pub fn rtmp_state_new() -> RtmpState {
 
 /// Spawn RTMP pipeline. On macOS uses FFmpeg direct capture (avfoundation + videotoolbox) for
 /// internal cameras. Use `use_mjpeg_input: true` for RTSP cameras (reads from stream URL on all platforms).
+/// When running in container, draws location (top left), camera name (underneath), and time (top right).
 pub fn spawn_rtmp_pipeline(
     stream_url: &str,
     rtmp_url: &str,
@@ -22,19 +31,48 @@ pub fn spawn_rtmp_pipeline(
     overlay_path: &std::path::Path,
     camera_index: u32,
     use_mjpeg_input: bool,
+    location_name: &str,
+    camera_name: &str,
 ) -> Result<(), String> {
     if use_mjpeg_input {
-        spawn_rtmp_pipeline_mjpeg(stream_url, rtmp_url, stop_rx, rtmp, id, overlay_path)
+        spawn_rtmp_pipeline_mjpeg(
+            stream_url,
+            rtmp_url,
+            stop_rx,
+            rtmp,
+            id,
+            overlay_path,
+            location_name,
+            camera_name,
+        )
     } else {
         #[cfg(target_os = "macos")]
         {
             let _ = stream_url;
-            spawn_rtmp_pipeline_direct(rtmp_url, stop_rx, rtmp, id, overlay_path, camera_index)
+            spawn_rtmp_pipeline_direct(
+                rtmp_url,
+                stop_rx,
+                rtmp,
+                id,
+                overlay_path,
+                camera_index,
+                location_name,
+                camera_name,
+            )
         }
 
         #[cfg(not(target_os = "macos"))]
         {
-            spawn_rtmp_pipeline_mjpeg(stream_url, rtmp_url, stop_rx, rtmp, id, overlay_path)
+            spawn_rtmp_pipeline_mjpeg(
+                stream_url,
+                rtmp_url,
+                stop_rx,
+                rtmp,
+                id,
+                overlay_path,
+                location_name,
+                camera_name,
+            )
         }
     }
 }
@@ -48,6 +86,8 @@ fn spawn_rtmp_pipeline_direct(
     id: String,
     overlay_path: &std::path::Path,
     camera_index: u32,
+    _location_name: &str,
+    _camera_name: &str,
 ) -> Result<(), String> {
     std::fs::create_dir_all(overlay_path.parent().unwrap_or(std::path::Path::new(".")))
         .map_err(|e| format!("Failed to create data dir: {}", e))?;
@@ -186,6 +226,8 @@ fn spawn_rtmp_pipeline_mjpeg(
     rtmp: RtmpState,
     id: String,
     overlay_path: &std::path::Path,
+    location_name: &str,
+    camera_name: &str,
 ) -> Result<(), String> {
     std::fs::create_dir_all(overlay_path.parent().unwrap_or(std::path::Path::new(".")))
         .map_err(|e| format!("Failed to create data dir: {}", e))?;
@@ -204,6 +246,44 @@ fn spawn_rtmp_pipeline_mjpeg(
     };
     tracing::info!(overlay_path = %overlay_path_str, encoder = %encoder, "RTMP: ffmpeg PNG overlay");
 
+    // Build filter: overlay + optional drawtext when in container
+    let in_container = std::path::Path::new("/.dockerenv").exists();
+    let filter_complex = if in_container {
+        let font = "fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf";
+        let base = "fontsize=20:fontcolor=white";
+        let mut parts: Vec<String> = vec![];
+        if !location_name.is_empty() {
+            parts.push(format!(
+                "drawtext=text='{}':x=10:y=10:{}:{}",
+                escape_drawtext(location_name),
+                base,
+                font
+            ));
+        }
+        if !camera_name.is_empty() {
+            let y = if location_name.is_empty() { 10 } else { 35 };
+            parts.push(format!(
+                "drawtext=text='{}':x=10:y={}:{}:{}",
+                escape_drawtext(camera_name),
+                y,
+                base,
+                font
+            ));
+        }
+        // Time at top right (always shown in container)
+        parts.push(format!(
+            "drawtext=text='%{{localtime\\:%H\\:%M\\:%S}}':x=w-text_w-10:y=10:{}:{}",
+            base, font
+        ));
+        let drawtext = parts.join(",");
+        format!(
+            "[1:v]fps=30[main];[main][2:v]overlay=0:H-80,{},format=yuv420p[out]",
+            drawtext
+        )
+    } else {
+        "[1:v]fps=30[main];[main][2:v]overlay=0:H-80,format=yuv420p[out]".into()
+    };
+
     // Common args: inputs and filter
     let mut args: Vec<String> = vec![
         "-y".into(),
@@ -216,7 +296,7 @@ fn spawn_rtmp_pipeline_mjpeg(
         "-loop".into(), "1".into(),
         "-i".into(), overlay_path_str.clone(),
         "-filter_complex".into(),
-        "[1:v]fps=30[main];[main][2:v]overlay=0:H-80,format=yuv420p[out]".into(),
+        filter_complex,
         "-map".into(), "[out]".into(),
         "-map".into(), "0:a".into(),
         "-c:v".into(), encoder.into(),

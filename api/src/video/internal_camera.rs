@@ -283,6 +283,10 @@ pub async fn camera_stream_rtmp_start(
 
     overlay::update_overlay(&app.db, &app.overlay, &id, &app.rtmp_processes, None);
 
+    let settings = app.db.get_settings().unwrap_or_default();
+    let location_name = settings.location_name.as_str();
+    let camera_name = camera.name.as_str();
+
     let cam_idx = std::env::var("CAMERA_INDEX")
         .ok()
         .and_then(|s| s.parse().ok())
@@ -316,6 +320,8 @@ pub async fn camera_stream_rtmp_start(
         &overlay_path,
         cam_idx,
         is_rtsp, // Use MJPEG from stream URL for RTSP (no direct capture)
+        location_name,
+        camera_name,
     ) {
         Ok(()) => {
             rtmp.write()

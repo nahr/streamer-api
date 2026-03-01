@@ -45,7 +45,7 @@ RUN cargo build --release
 # Build targets: ui-builder | api-deps | api-builder | table-tv (default)
 # =============================================================================
 FROM debian:bookworm-slim AS table-tv
-RUN apt-get update && apt-get install -y ca-certificates p11-kit avahi-daemon avahi-utils dumb-init ffmpeg nginx curl \
+RUN apt-get update && apt-get install -y ca-certificates p11-kit avahi-daemon avahi-utils dumb-init ffmpeg nginx curl fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 

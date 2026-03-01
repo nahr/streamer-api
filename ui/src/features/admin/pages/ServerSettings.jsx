@@ -107,7 +107,7 @@ export function ServerSettings() {
                 <ul>
                   <li><code>FACEBOOK_APP_ID</code> – Your Facebook App ID from developers.facebook.com</li>
                   <li><code>FACEBOOK_APP_SECRET</code> – Your Facebook App Secret</li>
-                  <li><code>BASE_URL</code> – Your app&apos;s public URL (e.g. <code>https://example.com</code>) for OAuth callback</li>
+                  <li><code>BASE_URL</code> – Optional. OAuth callback URL is derived from the current host; set this only if needed (e.g. behind a proxy)</li>
                 </ul>
                 <p>Users will sign in with their own Facebook account when they click &quot;Go Live with Facebook&quot;. Streams go to their profile. Add <code>publish_video</code> to your app&apos;s permissions.</p>
                 <p>Requirements: Account 60+ days old; 100+ followers for profile streaming.</p>

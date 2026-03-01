@@ -2,6 +2,7 @@
 
 use axum::{
     extract::{Query, State},
+    http::HeaderMap,
     response::Redirect,
     routing::get,
     Json,
@@ -64,6 +65,44 @@ fn verify_signed_state(state: &str, secret: &[u8]) -> Option<String> {
     Some(payload.r)
 }
 
+/// Derives base URL from request headers (Host, X-Forwarded-Host, X-Forwarded-Proto).
+/// Falls back to BASE_URL env var if headers don't yield a valid URL.
+fn base_url_from_request(headers: &HeaderMap) -> Option<String> {
+    use axum::http::header;
+    let host = headers
+        .get("x-forwarded-host")
+        .or_else(|| headers.get(header::HOST))
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())?;
+    let scheme = headers
+        .get("x-forwarded-proto")
+        .and_then(|v| v.to_str().ok())
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .unwrap_or("http");
+    Some(format!("{}://{}", scheme, host))
+}
+
+/// Resolves base URL: request-derived first, then BASE_URL env, else error.
+fn resolve_base_url(headers: &HeaderMap, env_fallback: bool) -> Result<String, ApiError> {
+    if let Some(url) = base_url_from_request(headers) {
+        return Ok(url);
+    }
+    if env_fallback {
+        std::env::var("BASE_URL").map_err(|_| {
+            ApiError::BadRequest(
+                "BASE_URL must be set for OAuth callback (e.g. https://example.com). \
+                 Or ensure requests include Host/X-Forwarded-Host.".to_string(),
+            )
+        })
+    } else {
+        Err(ApiError::BadRequest(
+            "Could not determine base URL from request. Set BASE_URL or ensure Host header is present.".to_string(),
+        ))
+    }
+}
+
 /// Short-lived cache for user tokens (auth_key -> access_token).
 #[derive(Clone, Default)]
 pub struct FacebookTokenCache {
@@ -104,16 +143,13 @@ pub struct AuthQuery {
 
 pub async fn facebook_auth(
     State(_app): State<AppState>,
+    headers: HeaderMap,
     Query(q): Query<AuthQuery>,
 ) -> Result<Redirect, ApiError> {
     let app_id = std::env::var("FACEBOOK_APP_ID").map_err(|_| {
         ApiError::BadRequest("Facebook OAuth not configured. Set FACEBOOK_APP_ID.".to_string())
     })?;
-    let base_url = std::env::var("BASE_URL").map_err(|_| {
-        ApiError::BadRequest(
-            "BASE_URL must be set for OAuth callback (e.g. https://example.com).".to_string(),
-        )
-    })?;
+    let base_url = resolve_base_url(&headers, true)?;
 
     let return_to = q.return_to.trim();
     if return_to.is_empty() || !return_to.starts_with('/') {
@@ -149,6 +185,7 @@ pub struct ExchangeCodeRequest {
 
 pub async fn facebook_exchange_code(
     State(app): State<AppState>,
+    headers: HeaderMap,
     axum::Json(req): axum::Json<ExchangeCodeRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     tracing::info!("Facebook exchange-code: received request");
@@ -167,8 +204,7 @@ pub async fn facebook_exchange_code(
         .map_err(|_| ApiError::BadRequest("Facebook OAuth not configured.".to_string()))?;
     let app_secret = std::env::var("FACEBOOK_APP_SECRET")
         .map_err(|_| ApiError::BadRequest("Facebook OAuth not configured.".to_string()))?;
-    let base_url = std::env::var("BASE_URL")
-        .map_err(|_| ApiError::BadRequest("BASE_URL not set.".to_string()))?;
+    let base_url = resolve_base_url(&headers, true)?;
 
     let redirect_uri = format!("{}/facebook/callback", base_url.trim_end_matches('/'));
 
@@ -234,16 +270,18 @@ pub async fn facebook_exchange_code(
 /// GET /api/facebook/status - Returns whether Facebook Live (OAuth) is configured.
 pub async fn facebook_status(
     _auth: AuthenticatedUser,
+    headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     let app_id = std::env::var("FACEBOOK_APP_ID").ok();
     let app_secret = std::env::var("FACEBOOK_APP_SECRET").ok();
-    let base_url = std::env::var("BASE_URL").ok();
+    let base_url = base_url_from_request(&headers)
+        .or_else(|| std::env::var("BASE_URL").ok())
+        .filter(|s| !s.is_empty());
     let configured = app_id.as_ref().map_or(false, |s| !s.is_empty())
         && app_secret.as_ref().map_or(false, |s| !s.is_empty())
         && base_url.as_ref().map_or(false, |s| !s.is_empty());
     let redirect_uri = base_url
         .as_ref()
-        .filter(|s| !s.is_empty())
         .map(|b| format!("{}/facebook/callback", b.trim_end_matches('/')));
     Ok(Json(serde_json::json!({
         "configured": configured,
