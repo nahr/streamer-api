@@ -70,6 +70,13 @@ impl From<MatchPlayer> for MatchPlayerDto {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
+pub struct ScoreHistoryEntryDto {
+    pub player_one_games_won: u8,
+    pub player_two_games_won: u8,
+    pub timestamp: i64,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
 pub struct PoolMatchResponse {
     pub id: String,
     pub player_one: MatchPlayerDto,
@@ -84,6 +91,9 @@ pub struct PoolMatchResponse {
     /// Match description (supports newlines), used in live video post.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// History of score adjustments with timestamps, newest last.
+    #[serde(default)]
+    pub score_history: Vec<ScoreHistoryEntryDto>,
 }
 
 impl PoolMatchResponse {
@@ -94,6 +104,15 @@ impl PoolMatchResponse {
             .as_ref()
             .map(|c| c.to_hex())
             .unwrap_or_default();
+        let score_history = doc
+            .score_history
+            .into_iter()
+            .map(|e| ScoreHistoryEntryDto {
+                player_one_games_won: e.player_one_games_won,
+                player_two_games_won: e.player_two_games_won,
+                timestamp: e.timestamp.timestamp_millis(),
+            })
+            .collect();
         Some(Self {
             id: id.to_hex(),
             player_one: doc.player_one.into(),
@@ -104,6 +123,7 @@ impl PoolMatchResponse {
             camera_name,
             started_by: doc.started_by_name,
             description: doc.description,
+            score_history,
         })
     }
 }

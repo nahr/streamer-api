@@ -12,6 +12,13 @@ import { fetchWithAuth } from '../../../apiClient.js'
  */
 
 /**
+ * @typedef {Object} ScoreHistoryEntry
+ * @property {number} player_one_games_won
+ * @property {number} player_two_games_won
+ * @property {number} timestamp - Unix timestamp in milliseconds
+ */
+
+/**
  * @typedef {Object} PoolMatch
  * @property {string} id
  * @property {MatchPlayer} player_one
@@ -22,6 +29,7 @@ import { fetchWithAuth } from '../../../apiClient.js'
  * @property {string} camera_name
  * @property {string} [started_by] - Display name of user who started the match
  * @property {string} [description] - Match description (supports newlines), used in live video post
+ * @property {ScoreHistoryEntry[]} [score_history] - History of score adjustments with timestamps
  */
 
 /**

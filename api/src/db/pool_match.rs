@@ -21,6 +21,14 @@ pub struct MatchPlayer {
     pub rating: Option<Rating>,
 }
 
+/// A single score adjustment event. Stores the score state after the change.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScoreHistoryEntry {
+    pub player_one_games_won: u8,
+    pub player_two_games_won: u8,
+    pub timestamp: DateTime,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PoolMatch {
     pub player_one: MatchPlayer,
@@ -54,6 +62,9 @@ pub struct PoolMatchDoc {
     pub started_by_name: Option<String>,
     #[serde(default)]
     pub description: Option<String>,
+    /// History of score adjustments with timestamps. New matches have none; each score update appends.
+    #[serde(default)]
+    pub score_history: Vec<ScoreHistoryEntry>,
 }
 
 impl Db {
@@ -103,6 +114,7 @@ impl Db {
             started_by_sub: match_data.started_by_sub,
             started_by_name: match_data.started_by_name,
             description: match_data.description,
+            score_history: vec![],
         };
         let result = collection.insert_one(doc)?;
         result
@@ -140,6 +152,18 @@ impl Db {
             )));
         }
 
+        let (player_one_games_won, player_two_games_won) = match player {
+            1 => (games_won, doc.player_two.games_won),
+            2 => (doc.player_one.games_won, games_won),
+            _ => unreachable!(),
+        };
+
+        let history_entry = ScoreHistoryEntry {
+            player_one_games_won,
+            player_two_games_won,
+            timestamp: DateTime::now(),
+        };
+
         let mut set_doc = Document::new();
         match player {
             1 => {
@@ -166,7 +190,10 @@ impl Db {
             set_doc.insert("end_time", DateTime::now());
         }
 
-        let update_doc = doc! { "$set": set_doc };
+        let update_doc = doc! {
+            "$set": set_doc,
+            "$push": { "score_history": polodb_core::bson::to_bson(&history_entry).map_err(|e| ApiError::Unknown(e.to_string()))? }
+        };
         let result = collection.update_one(doc! { "_id": id }, update_doc)?;
         if result.matched_count == 0 {
             return Err(ApiError::PoolMatchNotFound);

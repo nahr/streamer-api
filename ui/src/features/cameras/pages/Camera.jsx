@@ -82,12 +82,14 @@ export function Camera() {
   const [goLivePrivacy, setGoLivePrivacy] = useState('EVERYONE')
   const [streamUrl, setStreamUrl] = useState('')
   const [streamError, setStreamError] = useState(false)
+  const [previewLoaded, setPreviewLoaded] = useState(false)
 
   useEffect(() => {
     const camType = parseCameraType(camera?.camera_type).type
     if (!camera?.id || (camType !== 'internal' && camType !== 'rtsp')) return
     setStreamError(false)
     setStreamUrl('') // Clear while fetching token
+    setPreviewLoaded(false)
     let cancelled = false
     getToken().then((token) => {
       if (!cancelled) {
@@ -457,7 +459,7 @@ export function Camera() {
                   <Button
                     size="small"
                     variant="outlined"
-                    onClick={() => { setStreamError(false); getToken().then((t) => setStreamUrl(urlWithToken(`/api/cameras/${camera.id}/stream`, t))) }}
+                    onClick={() => { setStreamError(false); setPreviewLoaded(false); getToken().then((t) => setStreamUrl(urlWithToken(`/api/cameras/${camera.id}/stream`, t))) }}
                     sx={{ mt: 1 }}
                   >
                     Retry
@@ -487,6 +489,7 @@ export function Camera() {
                   <img
                     src={streamUrl}
                     alt={`${camera.name} live stream`}
+                    onLoad={() => setPreviewLoaded(true)}
                     onError={() => setStreamError(true)}
                     style={{
                       width: '100%',
@@ -496,6 +499,8 @@ export function Camera() {
                       display: 'block',
                     }}
                   />
+                  {previewLoaded && (
+                  <>
                   <Box
                     sx={{
                       position: 'absolute',
@@ -613,6 +618,8 @@ export function Camera() {
                         )}
                       </Box>
                     </Box>
+                  )}
+                  </>
                   )}
                 </>
               )}

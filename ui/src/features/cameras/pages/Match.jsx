@@ -23,6 +23,7 @@ import {
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import AddIcon from '@mui/icons-material/Add'
 import RemoveIcon from '@mui/icons-material/Remove'
+import HistoryIcon from '@mui/icons-material/History'
 import StopIcon from '@mui/icons-material/Stop'
 import LiveTvIcon from '@mui/icons-material/LiveTv'
 import VideocamIcon from '@mui/icons-material/Videocam'
@@ -94,6 +95,7 @@ export function Match() {
   const [goLivePrivacy, setGoLivePrivacy] = useState('EVERYONE')
   const [streamUrl, setStreamUrl] = useState('')
   const [streamError, setStreamError] = useState(false)
+  const [previewLoaded, setPreviewLoaded] = useState(false)
 
   useEffect(() => {
     if (!id) return
@@ -137,6 +139,7 @@ export function Match() {
     if (!camera?.id || (camType !== 'internal' && camType !== 'rtsp')) return
     setStreamError(false)
     setStreamUrl('')
+    setPreviewLoaded(false)
     let cancelled = false
     getToken().then((token) => {
       if (!cancelled) {
@@ -447,7 +450,7 @@ export function Match() {
                   <Button
                     size="small"
                     variant="outlined"
-                    onClick={() => { setStreamError(false); getToken().then((t) => setStreamUrl(urlWithToken(`/api/cameras/${camera.id}/stream`, t))) }}
+                    onClick={() => { setStreamError(false); setPreviewLoaded(false); getToken().then((t) => setStreamUrl(urlWithToken(`/api/cameras/${camera.id}/stream`, t))) }}
                     sx={{ mt: 1 }}
                   >
                     Retry
@@ -477,6 +480,7 @@ export function Match() {
                   <img
                     src={streamUrl}
                     alt={`${camera.name} live stream`}
+                    onLoad={() => setPreviewLoaded(true)}
                     onError={() => setStreamError(true)}
                     style={{
                       width: '100%',
@@ -486,97 +490,101 @@ export function Match() {
                       display: 'block',
                     }}
                   />
-                  <Box
-                    sx={{
-                      position: 'absolute',
-                      top: 8,
-                      left: 8,
-                      background: 'rgba(0,0,0,0.7)',
-                      color: '#fff',
-                      px: 1.5,
-                      py: 1,
-                      borderRadius: 1,
-                      fontSize: '0.875rem',
-                    }}
-                  >
-                    {locationName && (
-                      <Box component="div" sx={{ fontWeight: 600, mb: 0.25 }}>
-                        {locationName}
-                      </Box>
-                    )}
-                    <Box component="div" sx={{ fontSize: '0.75rem', opacity: 0.9 }}>
-                      {camera.name}
-                    </Box>
-                  </Box>
-                  <Box
-                    sx={{
-                      position: 'absolute',
-                      top: 8,
-                      right: 8,
-                      background: 'rgba(0,0,0,0.7)',
-                      color: '#fff',
-                      px: 1.5,
-                      py: 1,
-                      borderRadius: 1,
-                      fontSize: '0.875rem',
-                      fontVariantNumeric: 'tabular-nums',
-                    }}
-                  >
-                    <LiveTimestamp />
-                  </Box>
-                  {isActive && (
-                    <Box
-                      sx={{
-                        position: 'absolute',
-                        bottom: 0,
-                        left: 0,
-                        right: 0,
-                        background: 'rgba(0,0,0,0.9)',
-                        color: '#fff',
-                        py: 1.25,
-                        px: 2,
-                        borderRadius: '0 0 8px 8px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'space-between',
-                        gap: 2,
-                      }}
-                    >
-                      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', minWidth: 0, flex: 1 }}>
-                        <Typography variant="subtitle2" fontWeight={600} noWrap sx={{ maxWidth: '100%' }}>
-                          {match.player_one.name}
-                        </Typography>
-                        {match.player_one.rating && (
-                          <Typography variant="caption" color="rgba(255,255,255,0.8)">
-                            {match.player_one.rating.type} {match.player_one.rating.value}
-                          </Typography>
+                  {previewLoaded && (
+                    <>
+                      <Box
+                        sx={{
+                          position: 'absolute',
+                          top: 8,
+                          left: 8,
+                          background: 'rgba(0,0,0,0.7)',
+                          color: '#fff',
+                          px: 1.5,
+                          py: 1,
+                          borderRadius: 1,
+                          fontSize: '0.875rem',
+                        }}
+                      >
+                        {locationName && (
+                          <Box component="div" sx={{ fontWeight: 600, mb: 0.25 }}>
+                            {locationName}
+                          </Box>
                         )}
-                      </Box>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexShrink: 0 }}>
-                        <Box sx={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 32, height: 32, borderRadius: '50%', border: '2px solid #fff' }}>
-                          <Typography variant="subtitle1" fontWeight={700}>{match.player_one.games_won}</Typography>
-                        </Box>
-                        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
-                          <Typography variant="caption" color="rgba(255,255,255,0.8)">race to</Typography>
-                          <Typography variant="caption" color="rgba(255,255,255,0.8)">
-                            {match.player_one.race_to}/{match.player_two.race_to}
-                          </Typography>
-                        </Box>
-                        <Box sx={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 32, height: 32, borderRadius: '50%', border: '2px solid #fff' }}>
-                          <Typography variant="subtitle1" fontWeight={700}>{match.player_two.games_won}</Typography>
+                        <Box component="div" sx={{ fontSize: '0.75rem', opacity: 0.9 }}>
+                          {camera.name}
                         </Box>
                       </Box>
-                      <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', minWidth: 0, flex: 1 }}>
-                        <Typography variant="subtitle2" fontWeight={600} noWrap sx={{ maxWidth: '100%' }}>
-                          {match.player_two.name}
-                        </Typography>
-                        {match.player_two.rating && (
-                          <Typography variant="caption" color="rgba(255,255,255,0.8)">
-                            {match.player_two.rating.type} {match.player_two.rating.value}
-                          </Typography>
-                        )}
+                      <Box
+                        sx={{
+                          position: 'absolute',
+                          top: 8,
+                          right: 8,
+                          background: 'rgba(0,0,0,0.7)',
+                          color: '#fff',
+                          px: 1.5,
+                          py: 1,
+                          borderRadius: 1,
+                          fontSize: '0.875rem',
+                          fontVariantNumeric: 'tabular-nums',
+                        }}
+                      >
+                        <LiveTimestamp />
                       </Box>
-                    </Box>
+                      {isActive && (
+                        <Box
+                          sx={{
+                            position: 'absolute',
+                            bottom: 0,
+                            left: 0,
+                            right: 0,
+                            background: 'rgba(0,0,0,0.9)',
+                            color: '#fff',
+                            py: 1.25,
+                            px: 2,
+                            borderRadius: '0 0 8px 8px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: 2,
+                          }}
+                        >
+                          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', minWidth: 0, flex: 1 }}>
+                            <Typography variant="subtitle2" fontWeight={600} noWrap sx={{ maxWidth: '100%' }}>
+                              {match.player_one.name}
+                            </Typography>
+                            {match.player_one.rating && (
+                              <Typography variant="caption" color="rgba(255,255,255,0.8)">
+                                {match.player_one.rating.type} {match.player_one.rating.value}
+                              </Typography>
+                            )}
+                          </Box>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexShrink: 0 }}>
+                            <Box sx={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 32, height: 32, borderRadius: '50%', border: '2px solid #fff' }}>
+                              <Typography variant="subtitle1" fontWeight={700}>{match.player_one.games_won}</Typography>
+                            </Box>
+                            <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
+                              <Typography variant="caption" color="rgba(255,255,255,0.8)">race to</Typography>
+                              <Typography variant="caption" color="rgba(255,255,255,0.8)">
+                                {match.player_one.race_to}/{match.player_two.race_to}
+                              </Typography>
+                            </Box>
+                            <Box sx={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', minWidth: 32, height: 32, borderRadius: '50%', border: '2px solid #fff' }}>
+                              <Typography variant="subtitle1" fontWeight={700}>{match.player_two.games_won}</Typography>
+                            </Box>
+                          </Box>
+                          <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', minWidth: 0, flex: 1 }}>
+                            <Typography variant="subtitle2" fontWeight={600} noWrap sx={{ maxWidth: '100%' }}>
+                              {match.player_two.name}
+                            </Typography>
+                            {match.player_two.rating && (
+                              <Typography variant="caption" color="rgba(255,255,255,0.8)">
+                                {match.player_two.rating.type} {match.player_two.rating.value}
+                              </Typography>
+                            )}
+                          </Box>
+                        </Box>
+                      )}
+                    </>
                   )}
                 </>
               )}
@@ -668,6 +676,38 @@ export function Match() {
             </Typography>
           )}
         </Box>
+
+        {(match.score_history?.length ?? 0) > 0 && (
+          <Box sx={{ mt: 2, pt: 2, borderTop: 1, borderColor: 'divider' }}>
+            <Typography variant="h6" sx={{ mb: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+              <HistoryIcon fontSize="small" />
+              Score history
+            </Typography>
+            <Stack component="ul" spacing={0} sx={{ listStyle: 'none', pl: 0, m: 0 }}>
+              {match.score_history.map((entry, i) => (
+                <Box
+                  key={i}
+                  component="li"
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 2,
+                    py: 1,
+                    borderBottom: i < match.score_history.length - 1 ? 1 : 0,
+                    borderColor: 'divider',
+                  }}
+                >
+                  <Typography variant="body2" color="text.secondary" sx={{ minWidth: 140 }}>
+                    {formatTime(entry.timestamp)}
+                  </Typography>
+                  <Typography variant="body1" fontWeight={600}>
+                    {entry.player_one_games_won} – {entry.player_two_games_won}
+                  </Typography>
+                </Box>
+              ))}
+            </Stack>
+          </Box>
+        )}
 
         {match.camera_id && (
           <Box sx={{ mt: 2, pt: 2, borderTop: 1, borderColor: 'divider' }}>
