@@ -7,8 +7,6 @@ use imageproc::drawing::{draw_filled_circle_mut, draw_filled_rect_mut, draw_text
 use imageproc::rect::Rect;
 use std::sync::{Arc, RwLock};
 
-use polodb_core::bson::oid::ObjectId;
-
 use crate::db::pool_match::{MatchPlayer, Rating};
 use crate::db::Db;
 use crate::video::rtmp;
@@ -235,7 +233,7 @@ pub fn spawn_overlay_refresh_task(db: Db, overlay_state: OverlayState, _rtmp_pro
 pub fn update_overlay(
     db: &Db,
     overlay_state: &OverlayState,
-    camera_id: &ObjectId,
+    camera_id: &str,
     _rtmp_processes: &rtmp::RtmpState,
     overlay_from_match: Option<MatchOverlay>,
 ) {
@@ -279,7 +277,7 @@ pub fn update_overlay(
 pub fn clear_overlay(
     db: &Db,
     overlay_state: &OverlayState,
-    camera_id: &ObjectId,
+    camera_id: &str,
     _rtmp_processes: &rtmp::RtmpState,
 ) {
     let camera = match db.find_camera_by_id(camera_id) {

@@ -1,5 +1,6 @@
-use polodb_core::Database;
+use rusqlite::Connection;
 use std::path::Path;
+use std::sync::Mutex;
 
 pub mod camera;
 pub mod pool_match;
@@ -8,38 +9,71 @@ pub mod user;
 
 use crate::error::ApiError;
 
-/// Application database handle. PoloDB is clone-friendly for sharing across handlers.
-#[derive(Clone)]
-pub struct Db(pub Database);
+/// Document ID type. Stored as string in SQLite.
+pub type Id = String;
 
-fn is_corruption_error(e: &polodb_core::Error) -> bool {
-    let s = e.to_string();
-    s.contains("Corruption") || s.contains("corrupted")
+fn new_id() -> Id {
+    uuid::Uuid::new_v4().simple().to_string()
 }
+
+/// Application database handle. Wraps SQLite connection for sharing across handlers.
+#[derive(Clone)]
+pub struct Db(pub std::sync::Arc<Mutex<Connection>>);
 
 impl Db {
     /// Open the database at the given path. Creates parent dirs and file if needed.
-    /// On corruption error, removes the database directory and retries with a fresh one.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, ApiError> {
         let path = path.as_ref();
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        match Database::open_path(path) {
-            Ok(db) => Ok(Self(db)),
-            Err(e) if is_corruption_error(&e) => {
-                tracing::warn!(path = %path.display(), "Database corrupted, removing and recreating: {}", e);
-                let _ = std::fs::remove_dir_all(path);
-                let db = Database::open_path(path)?;
-                Ok(Self(db))
-            }
-            Err(e) => Err(e.into()),
-        }
+        let conn = Connection::open(path)?;
+        let db = Self(std::sync::Arc::new(Mutex::new(conn)));
+        db.init_schema()?;
+        Ok(db)
     }
 
-    /// Open the database using `POLODB_PATH` env var, or default to `data/table-tv.db`.
+    fn init_schema(&self) -> Result<(), ApiError> {
+        let conn = self.0.lock().map_err(|e| ApiError::Unknown(e.to_string()))?;
+        conn.execute_batch(
+            "
+            CREATE TABLE IF NOT EXISTS cameras (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                camera_type TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS pool_matches (
+                id TEXT PRIMARY KEY,
+                player_one TEXT NOT NULL,
+                player_two TEXT NOT NULL,
+                start_time TEXT NOT NULL,
+                end_time TEXT,
+                camera_id TEXT,
+                started_by_sub TEXT,
+                started_by_name TEXT,
+                description TEXT,
+                score_history TEXT NOT NULL DEFAULT '[]'
+            );
+            CREATE TABLE IF NOT EXISTS users (
+                auth0_sub TEXT PRIMARY KEY,
+                email TEXT NOT NULL,
+                is_admin INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS settings (
+                id TEXT PRIMARY KEY,
+                location_name TEXT NOT NULL DEFAULT ''
+            );
+            INSERT OR IGNORE INTO settings (id, location_name) VALUES ('system', '');
+            ",
+        )?;
+        Ok(())
+    }
+
+    /// Open the database using `SQLITE_PATH` (or `POLODB_PATH` for compatibility) env var, or default to `data/table-tv.db`.
     pub fn open_default() -> Result<Self, ApiError> {
-        let path = std::env::var("POLODB_PATH").unwrap_or_else(|_| "data/table-tv.db".to_string());
+        let path = std::env::var("SQLITE_PATH")
+            .or_else(|_| std::env::var("POLODB_PATH"))
+            .unwrap_or_else(|_| "data/table-tv.db".to_string());
         Self::open(path)
     }
 }

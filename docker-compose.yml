@@ -4,7 +4,6 @@ services:
       context: .
       dockerfile: Dockerfile
       target: table-tv
-    platform: linux/amd64  # polodb_core fails on ARM; amd64 runs via QEMU emulation on Apple Silicon
     ports:
       - "80:80"
     hostname: table-tv

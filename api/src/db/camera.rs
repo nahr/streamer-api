@@ -1,11 +1,7 @@
-use polodb_core::bson::{doc, oid::ObjectId};
-use polodb_core::CollectionT;
 use serde::{Deserialize, Serialize};
 
 use crate::error::ApiError;
-use super::Db;
-
-const CAMERAS_COLLECTION: &str = "cameras";
+use super::{Db, Id, new_id};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub enum CameraType {
@@ -31,18 +27,9 @@ impl CameraType {
     }
 }
 
-/// Build a query filter that matches documents with Internal camera type.
-/// Uses $eq to avoid PoloDB rejecting "Internal" as a query field name.
-fn internal_camera_type_filter() -> Result<polodb_core::bson::Document, ApiError> {
-    let internal_bson = polodb_core::bson::to_bson(&CameraType::Internal)
-        .map_err(|e| ApiError::Unknown(e.to_string()))?;
-    Ok(doc! { "camera_type": { "$eq": internal_bson } })
-}
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct CameraDoc {
-    #[serde(rename = "_id", skip_serializing_if = "Option::is_none")]
-    pub id: Option<ObjectId>,
+    pub id: Option<Id>,
     pub name: String,
     pub camera_type: CameraType,
 }
@@ -50,95 +37,143 @@ pub struct CameraDoc {
 impl Db {
     /// List all cameras.
     pub fn list_cameras(&self) -> Result<Vec<CameraDoc>, ApiError> {
-        let collection = self.0.collection::<CameraDoc>(CAMERAS_COLLECTION);
-        let cursor = collection.find(doc! {}).run()?;
-        Ok(cursor.collect::<Result<Vec<_>, polodb_core::Error>>()?)
+        let conn = self.0.lock().map_err(|e| ApiError::Unknown(e.to_string()))?;
+        let mut stmt = conn.prepare("SELECT id, name, camera_type FROM cameras")?;
+        let rows = stmt.query_map([], |row| {
+            let id: String = row.get(0)?;
+            let name: String = row.get(1)?;
+            let camera_type: String = row.get(2)?;
+            let camera_type: CameraType = serde_json::from_str(&camera_type)
+                .map_err(|e| rusqlite::Error::InvalidParameterName(format!("JSON: {}", e)))?;
+            Ok(CameraDoc {
+                id: Some(id),
+                name,
+                camera_type,
+            })
+        })?;
+        Ok(rows.collect::<Result<Vec<_>, _>>()?)
     }
 
     /// Find camera by id.
-    pub fn find_camera_by_id(&self, id: &ObjectId) -> Result<Option<CameraDoc>, ApiError> {
-        let collection = self.0.collection::<CameraDoc>(CAMERAS_COLLECTION);
-        Ok(collection.find_one(doc! { "_id": id })?)
+    pub fn find_camera_by_id(&self, id: &str) -> Result<Option<CameraDoc>, ApiError> {
+        let conn = self.0.lock().map_err(|e| ApiError::Unknown(e.to_string()))?;
+        let mut stmt = conn.prepare("SELECT id, name, camera_type FROM cameras WHERE id = ?1")?;
+        let mut rows = stmt.query([id])?;
+        if let Some(row) = rows.next()? {
+            let id: String = row.get(0)?;
+            let name: String = row.get(1)?;
+            let camera_type: String = row.get(2)?;
+            let camera_type: CameraType =
+                serde_json::from_str(&camera_type).map_err(|e| ApiError::Unknown(e.to_string()))?;
+            Ok(Some(CameraDoc {
+                id: Some(id),
+                name,
+                camera_type,
+            }))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Find camera by name.
     pub fn find_camera_by_name(&self, name: &str) -> Result<Option<CameraDoc>, ApiError> {
-        let collection = self.0.collection::<CameraDoc>(CAMERAS_COLLECTION);
-        Ok(collection.find_one(doc! { "name": name })?)
+        let conn = self.0.lock().map_err(|e| ApiError::Unknown(e.to_string()))?;
+        let mut stmt = conn.prepare("SELECT id, name, camera_type FROM cameras WHERE name = ?1")?;
+        let mut rows = stmt.query([name])?;
+        if let Some(row) = rows.next()? {
+            let id: String = row.get(0)?;
+            let name: String = row.get(1)?;
+            let camera_type: String = row.get(2)?;
+            let camera_type: CameraType =
+                serde_json::from_str(&camera_type).map_err(|e| ApiError::Unknown(e.to_string()))?;
+            Ok(Some(CameraDoc {
+                id: Some(id),
+                name,
+                camera_type,
+            }))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Find the internal camera, if one exists.
     pub fn find_internal_camera(&self) -> Result<Option<CameraDoc>, ApiError> {
-        let collection = self.0.collection::<CameraDoc>(CAMERAS_COLLECTION);
-        Ok(collection.find_one(internal_camera_type_filter()?)?)
+        let internal_json = serde_json::to_string(&CameraType::Internal)
+            .map_err(|e| ApiError::Unknown(e.to_string()))?;
+        let conn = self.0.lock().map_err(|e| ApiError::Unknown(e.to_string()))?;
+        let mut stmt =
+            conn.prepare("SELECT id, name, camera_type FROM cameras WHERE camera_type = ?1")?;
+        let mut rows = stmt.query([internal_json])?;
+        if let Some(row) = rows.next()? {
+            let id: String = row.get(0)?;
+            let name: String = row.get(1)?;
+            let camera_type: String = row.get(2)?;
+            let camera_type: CameraType =
+                serde_json::from_str(&camera_type).map_err(|e| ApiError::Unknown(e.to_string()))?;
+            Ok(Some(CameraDoc {
+                id: Some(id),
+                name,
+                camera_type,
+            }))
+        } else {
+            Ok(None)
+        }
     }
 
     /// Create a new camera. Fails if creating Internal and one already exists.
-    pub fn create_camera(&self, name: String, camera_type: CameraType) -> Result<ObjectId, ApiError> {
+    pub fn create_camera(&self, name: String, camera_type: CameraType) -> Result<Id, ApiError> {
         if camera_type.is_internal() {
-            let existing = self.0
-                .collection::<CameraDoc>(CAMERAS_COLLECTION)
-                .find_one(internal_camera_type_filter()?)?;
-            if existing.is_some() {
+            if self.find_internal_camera()?.is_some() {
                 return Err(ApiError::InternalCameraExists);
             }
         }
-        let collection = self.0.collection::<CameraDoc>(CAMERAS_COLLECTION);
-        let doc = CameraDoc {
-            id: None,
-            name,
-            camera_type,
-        };
-        let result = collection.insert_one(doc)?;
-        result
-            .inserted_id
-            .as_object_id()
-            .ok_or_else(|| ApiError::BadRequest("Failed to get inserted id".to_string()))
+        let id = new_id();
+        let camera_type_json =
+            serde_json::to_string(&camera_type).map_err(|e| ApiError::Unknown(e.to_string()))?;
+        let conn = self.0.lock().map_err(|e| ApiError::Unknown(e.to_string()))?;
+        conn.execute("INSERT INTO cameras (id, name, camera_type) VALUES (?1, ?2, ?3)", [
+            &id,
+            &name,
+            &camera_type_json,
+        ])?;
+        Ok(id)
     }
 
     /// Update a camera. Fails if updating to Internal and another Internal already exists.
     pub fn update_camera(
         &self,
-        id: &ObjectId,
+        id: &str,
         name: String,
         camera_type: CameraType,
     ) -> Result<(), ApiError> {
-        // Only check for duplicate Internal when *changing* to Internal (not when updating name of existing Internal)
         if camera_type.is_internal() {
             let current = self.find_camera_by_id(id)?;
-            let was_already_internal = current.as_ref().map_or(false, |c| c.camera_type.is_internal());
+            let was_already_internal = current
+                .as_ref()
+                .map_or(false, |c| c.camera_type.is_internal());
             if !was_already_internal {
-                let existing = self.0
-                    .collection::<CameraDoc>(CAMERAS_COLLECTION)
-                    .find_one(internal_camera_type_filter()?)?;
-                if existing.is_some() {
+                if self.find_internal_camera()?.is_some() {
                     return Err(ApiError::InternalCameraExists);
                 }
             }
         }
-        let collection = self.0.collection::<CameraDoc>(CAMERAS_COLLECTION);
-        let camera_type_doc = match &camera_type {
-            CameraType::Rtsp { url } => doc! { "Rtsp": { "url": url.clone() } },
-            CameraType::Internal => doc! { "Internal": null },
-            CameraType::Usb { device } => doc! { "Usb": { "device": device.clone() } },
-        };
-        let update_doc = doc! {
-            "$set": {
-                "name": name,
-                "camera_type": camera_type_doc
-            }
-        };
-        let result = collection.update_one(doc! { "_id": id }, update_doc)?;
-        if result.matched_count == 0 {
+        let camera_type_json =
+            serde_json::to_string(&camera_type).map_err(|e| ApiError::Unknown(e.to_string()))?;
+        let conn = self.0.lock().map_err(|e| ApiError::Unknown(e.to_string()))?;
+        let changed = conn.execute(
+            "UPDATE cameras SET name = ?1, camera_type = ?2 WHERE id = ?3",
+            rusqlite::params![name, camera_type_json, id],
+        )?;
+        if changed == 0 {
             return Err(ApiError::CameraNotFound);
         }
         Ok(())
     }
 
     /// Delete a camera.
-    pub fn delete_camera(&self, id: &ObjectId) -> Result<bool, ApiError> {
-        let collection = self.0.collection::<CameraDoc>(CAMERAS_COLLECTION);
-        let result = collection.delete_one(doc! { "_id": id })?;
-        Ok(result.deleted_count > 0)
+    pub fn delete_camera(&self, id: &str) -> Result<bool, ApiError> {
+        let conn = self.0.lock().map_err(|e| ApiError::Unknown(e.to_string()))?;
+        let changed = conn.execute("DELETE FROM cameras WHERE id = ?1", [id])?;
+        Ok(changed > 0)
     }
 }

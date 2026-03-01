@@ -30,7 +30,7 @@ cd ui && npm run dev
 
 The UI proxies `/api` to the API. Open <http://localhost:5173>.
 
-To reset the database (e.g. if `initialized` is wrong, or after schema changes like pool matches now using `camera_id`): delete `api/data/` and restart the API.
+To reset the database (e.g. if `initialized` is wrong, or after schema changes): delete `api/data/` and restart the API.
 
 ## Auth0 Login
 

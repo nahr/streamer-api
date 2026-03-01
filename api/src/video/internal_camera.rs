@@ -7,7 +7,6 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use bytes::Bytes;
-use polodb_core::bson::oid::ObjectId;
 use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, RwLock};
 use tokio::sync::broadcast;
@@ -156,12 +155,13 @@ pub async fn camera_stream(
     State(app): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Response, ApiError> {
-    let oid = ObjectId::parse_str(&id)
-        .map_err(|_| ApiError::BadRequest("Invalid camera id".to_string()))?;
+    if id.is_empty() || id.len() > 64 {
+        return Err(ApiError::BadRequest("Invalid camera id".to_string()));
+    }
 
     let camera = app
         .db
-        .find_camera_by_id(&oid)?
+        .find_camera_by_id(&id)?
         .ok_or(ApiError::CameraNotFound)?;
 
     let rx = match &camera.camera_type {
@@ -254,12 +254,13 @@ pub async fn camera_stream_rtmp_start(
         req.url.clone()
     };
     tracing::info!(camera_id = %id, url = %url_safe, "RTMP start: received request");
-    let oid = ObjectId::parse_str(&id)
-        .map_err(|_| ApiError::BadRequest("Invalid camera id".to_string()))?;
+    if id.is_empty() || id.len() > 64 {
+        return Err(ApiError::BadRequest("Invalid camera id".to_string()));
+    }
 
     let camera = app
         .db
-        .find_camera_by_id(&oid)?
+        .find_camera_by_id(&id)?
         .ok_or(ApiError::CameraNotFound)?;
 
     let is_rtsp = camera.camera_type.is_rtsp();
@@ -280,7 +281,7 @@ pub async fn camera_stream_rtmp_start(
         std::thread::sleep(std::time::Duration::from_secs(2));
     }
 
-    overlay::update_overlay(&app.db, &app.overlay, &oid, &app.rtmp_processes, None);
+    overlay::update_overlay(&app.db, &app.overlay, &id, &app.rtmp_processes, None);
 
     let cam_idx = std::env::var("CAMERA_INDEX")
         .ok()
@@ -361,12 +362,9 @@ pub async fn camera_stream_rtmp_stop(
     std::thread::sleep(std::time::Duration::from_secs(2));
 
     // Restart internal camera preview (RTSP has no preview to restart)
-    let oid = ObjectId::parse_str(&id).ok();
-    if let Some(oid) = oid {
-        if let Ok(Some(camera)) = app.db.find_camera_by_id(&oid) {
-            if camera.camera_type.is_internal() {
-                let _ = get_or_init_camera(app.overlay.clone(), app.preview_ffmpeg.clone());
-            }
+    if let Ok(Some(camera)) = app.db.find_camera_by_id(&id) {
+        if camera.camera_type.is_internal() {
+            let _ = get_or_init_camera(app.overlay.clone(), app.preview_ffmpeg.clone());
         }
     }
     tracing::info!(camera_id = %id, "RTMP stop: stream stopped");

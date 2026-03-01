@@ -3,7 +3,6 @@ use axum::{
     routing::get,
     Json,
 };
-use polodb_core::bson::oid::ObjectId;
 use serde::{Deserialize, Serialize};
 
 use crate::api::auth::AuthenticatedUser;
@@ -11,6 +10,10 @@ use crate::api::AppState;
 use crate::db::camera::CameraType;
 use crate::error::ApiError;
 use crate::video;
+
+fn valid_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+}
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct CameraResponse {
@@ -22,7 +25,7 @@ pub struct CameraResponse {
 impl CameraResponse {
     fn from_doc(doc: crate::db::camera::CameraDoc) -> Option<Self> {
         doc.id.map(|id| Self {
-            id: id.to_hex(),
+            id,
             name: doc.name,
             camera_type: doc.camera_type,
         })
@@ -60,9 +63,11 @@ pub async fn cameras_get(
     State(app): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<CameraResponse>, ApiError> {
-    let oid = ObjectId::parse_str(&id).map_err(|_| ApiError::BadRequest("Invalid camera id".to_string()))?;
+    if !valid_id(&id) {
+        return Err(ApiError::BadRequest("Invalid camera id".to_string()));
+    }
     let camera = app.db
-        .find_camera_by_id(&oid)?
+        .find_camera_by_id(&id)?
         .ok_or(ApiError::CameraNotFound)?;
     CameraResponse::from_doc(camera).ok_or(ApiError::CameraNotFound).map(Json)
 }
@@ -77,7 +82,7 @@ pub async fn cameras_create(
         return Err(ApiError::BadRequest("name is required".to_string()));
     }
     let id = app.db.create_camera(req.name, req.camera_type)?;
-    Ok(Json(serde_json::json!({ "id": id.to_hex() })))
+    Ok(Json(serde_json::json!({ "id": id })))
 }
 
 /// PUT /api/cameras/:id - Update a camera.
@@ -90,8 +95,10 @@ pub async fn cameras_update(
     if req.name.is_empty() {
         return Err(ApiError::BadRequest("name is required".to_string()));
     }
-    let oid = ObjectId::parse_str(&id).map_err(|_| ApiError::BadRequest("Invalid camera id".to_string()))?;
-    app.db.update_camera(&oid, req.name, req.camera_type)?;
+    if !valid_id(&id) {
+        return Err(ApiError::BadRequest("Invalid camera id".to_string()));
+    }
+    app.db.update_camera(&id, req.name, req.camera_type)?;
     Ok(Json(serde_json::json!({ "ok": true })))
 }
 
@@ -101,8 +108,10 @@ pub async fn cameras_delete(
     State(app): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let oid = ObjectId::parse_str(&id).map_err(|_| ApiError::BadRequest("Invalid camera id".to_string()))?;
-    let deleted = app.db.delete_camera(&oid)?;
+    if !valid_id(&id) {
+        return Err(ApiError::BadRequest("Invalid camera id".to_string()));
+    }
+    let deleted = app.db.delete_camera(&id)?;
     if !deleted {
         return Err(ApiError::CameraNotFound);
     }

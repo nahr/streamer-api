@@ -3,7 +3,7 @@ use axum::{
     routing::{get, patch},
     Json,
 };
-use polodb_core::bson::{oid::ObjectId, DateTime};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
 use crate::api::auth::AuthenticatedUser;
@@ -11,6 +11,10 @@ use crate::api::AppState;
 use crate::db::pool_match::{MatchPlayer, PoolMatch, PoolMatchDoc, Rating};
 use crate::error::ApiError;
 use crate::video;
+
+fn valid_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+}
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct RatingDto {
@@ -101,11 +105,7 @@ pub struct PoolMatchResponse {
 impl PoolMatchResponse {
     fn from_doc(doc: PoolMatchDoc, camera_name: String) -> Option<Self> {
         let id = doc.id?;
-        let camera_id = doc
-            .camera_id
-            .as_ref()
-            .map(|c| c.to_hex())
-            .unwrap_or_default();
+        let camera_id = doc.camera_id.as_ref().cloned().unwrap_or_default();
         let score_history = doc
             .score_history
             .into_iter()
@@ -116,7 +116,7 @@ impl PoolMatchResponse {
             })
             .collect();
         Some(Self {
-            id: id.to_hex(),
+            id: id.clone(),
             player_one: doc.player_one.into(),
             player_two: doc.player_two.into(),
             start_time: doc.start_time.timestamp_millis(),
@@ -163,9 +163,10 @@ pub async fn pool_matches_active(
     State(app): State<AppState>,
     Query(q): Query<ActiveMatchQuery>,
 ) -> Result<Json<Option<PoolMatchResponse>>, ApiError> {
-    let camera_oid = ObjectId::parse_str(&q.camera_id)
-        .map_err(|_| ApiError::BadRequest("Invalid camera_id".to_string()))?;
-    let m = app.db.find_active_pool_match_by_camera_id(&camera_oid)?;
+    if !valid_id(&q.camera_id) {
+        return Err(ApiError::BadRequest("Invalid camera_id".to_string()));
+    }
+    let m = app.db.find_active_pool_match_by_camera_id(&q.camera_id)?;
     let resp = m.and_then(|doc| {
         let camera_name = doc
             .camera_id
@@ -204,11 +205,12 @@ pub async fn pool_matches_get(
     State(app): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<PoolMatchResponse>, ApiError> {
-    let oid = ObjectId::parse_str(&id)
-        .map_err(|_| ApiError::BadRequest("Invalid pool match id".to_string()))?;
+    if !valid_id(&id) {
+        return Err(ApiError::BadRequest("Invalid pool match id".to_string()));
+    }
     let m = app
         .db
-        .find_pool_match_by_id(&oid)?
+        .find_pool_match_by_id(&id)?
         .ok_or(ApiError::PoolMatchNotFound)?;
     let camera_name = m
         .camera_id
@@ -232,11 +234,12 @@ pub async fn pool_matches_create(
             "player names are required".to_string(),
         ));
     }
-    let camera_oid = ObjectId::parse_str(&req.camera_id)
-        .map_err(|_| ApiError::BadRequest("Invalid camera_id".to_string()))?;
+    if !valid_id(&req.camera_id) {
+        return Err(ApiError::BadRequest("Invalid camera_id".to_string()));
+    }
     let _camera = app
         .db
-        .find_camera_by_id(&camera_oid)?
+        .find_camera_by_id(&req.camera_id)?
         .ok_or(ApiError::CameraNotFound)?;
     if req.player_one.race_to == 0 || req.player_two.race_to == 0 {
         return Err(ApiError::BadRequest(
@@ -260,9 +263,9 @@ pub async fn pool_matches_create(
     let match_data = PoolMatch {
         player_one,
         player_two,
-        start_time: DateTime::now(),
+        start_time: Utc::now(),
         end_time: None,
-        camera_id: camera_oid,
+        camera_id: req.camera_id.clone(),
         started_by_sub: Some(auth.sub),
         started_by_name: Some(auth.name),
         description: req.description.filter(|s| !s.trim().is_empty()),
@@ -272,11 +275,11 @@ pub async fn pool_matches_create(
     video::update_overlay(
         &app.db,
         &app.overlay,
-        &camera_oid,
+        &req.camera_id,
         &app.rtmp_processes,
         None,
     );
-    Ok(Json(serde_json::json!({ "id": id.to_hex() })))
+    Ok(Json(serde_json::json!({ "id": id })))
 }
 
 /// PATCH /api/pool-matches/:id/score - Update games_won for a player. Sets end_time when games_won == race_to.
@@ -287,11 +290,12 @@ pub async fn pool_matches_update_score(
     Path(id): Path<String>,
     Json(req): Json<PoolMatchUpdateScoreRequest>,
 ) -> Result<Json<PoolMatchResponse>, ApiError> {
-    let oid = ObjectId::parse_str(&id)
-        .map_err(|_| ApiError::BadRequest("Invalid pool match id".to_string()))?;
+    if !valid_id(&id) {
+        return Err(ApiError::BadRequest("Invalid pool match id".to_string()));
+    }
     let doc = app
         .db
-        .find_pool_match_by_id(&oid)?
+        .find_pool_match_by_id(&id)?
         .ok_or(ApiError::PoolMatchNotFound)?;
     if doc.end_time.is_some() {
         return Err(ApiError::BadRequest(
@@ -310,7 +314,7 @@ pub async fn pool_matches_update_score(
     }
     let updated = app
         .db
-        .update_pool_match_games_won(&oid, req.player, req.games_won)?;
+        .update_pool_match_games_won(&id, req.player, req.games_won)?;
     if let Some(ref cid) = updated.camera_id {
         if updated.end_time.is_some() {
             video::clear_overlay(&app.db, &app.overlay, cid, &app.rtmp_processes);
@@ -345,11 +349,12 @@ pub async fn pool_matches_end(
     State(app): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<PoolMatchResponse>, ApiError> {
-    let oid = ObjectId::parse_str(&id)
-        .map_err(|_| ApiError::BadRequest("Invalid pool match id".to_string()))?;
+    if !valid_id(&id) {
+        return Err(ApiError::BadRequest("Invalid pool match id".to_string()));
+    }
     let doc = app
         .db
-        .find_pool_match_by_id(&oid)?
+        .find_pool_match_by_id(&id)?
         .ok_or(ApiError::PoolMatchNotFound)?;
     let can_end = auth.is_admin
         || doc
@@ -362,7 +367,7 @@ pub async fn pool_matches_end(
             "Only the match creator or an admin can end the match".to_string(),
         ));
     }
-    let updated = app.db.end_pool_match(&oid)?;
+    let updated = app.db.end_pool_match(&id)?;
     if let Some(ref cid) = updated.camera_id {
         video::clear_overlay(&app.db, &app.overlay, cid, &app.rtmp_processes);
     }
@@ -383,11 +388,12 @@ pub async fn pool_matches_delete(
     State(app): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let oid = ObjectId::parse_str(&id)
-        .map_err(|_| ApiError::BadRequest("Invalid pool match id".to_string()))?;
-    let match_doc = app.db.find_pool_match_by_id(&oid)?;
-    let camera_id = match_doc.as_ref().and_then(|m| m.camera_id);
-    let deleted = app.db.delete_pool_match(&oid)?;
+    if !valid_id(&id) {
+        return Err(ApiError::BadRequest("Invalid pool match id".to_string()));
+    }
+    let match_doc = app.db.find_pool_match_by_id(&id)?;
+    let camera_id = match_doc.as_ref().and_then(|m| m.camera_id.clone());
+    let deleted = app.db.delete_pool_match(&id)?;
     if !deleted {
         return Err(ApiError::PoolMatchNotFound);
     }

@@ -12,7 +12,7 @@ pub enum ApiError {
     Io(#[from] std::io::Error),
 
     #[error("Database error: {0}")]
-    Db(#[from] polodb_core::Error),
+    Db(#[from] rusqlite::Error),
 
     #[error("Internal camera already exists")]
     InternalCameraExists,
