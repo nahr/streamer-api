@@ -27,9 +27,10 @@ impl ApiServer {
     fn router(db: Db) -> Router {
         let overlay: OverlayState = Arc::new(RwLock::new(None));
         let rtmp_processes = crate::video::rtmp_state_new();
-        if db.list_cameras().map_or(false, |cams| {
-            cams.iter().any(|c| c.camera_type.is_rtsp())
-        }) {
+        if db
+            .list_cameras()
+            .map_or(false, |cams| cams.iter().any(|c| c.camera_type.is_rtsp()))
+        {
             video::restore_overlay_from_db(&db, &overlay, &rtmp_processes);
             video::spawn_overlay_refresh_task(db.clone(), overlay.clone(), rtmp_processes.clone());
         }
@@ -68,7 +69,7 @@ impl ApiServer {
             .merge(info::routes())
             .merge(settings::routes())
             .merge(user::routes())
-            .layer(TraceLayer::new_for_http())
+            // .layer(TraceLayer::new_for_http())
             .with_state(app_state);
 
         if Path::new("ui-dist").exists() {

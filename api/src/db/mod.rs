@@ -21,6 +21,15 @@ fn new_id() -> Id {
 pub struct Db(pub std::sync::Arc<Mutex<Connection>>);
 
 impl Db {
+    /// Execute a function with exclusive access to the database connection.
+    /// The lock is always released when the closure returns (or panics).
+    pub fn execute<T, F>(&self, f: F) -> Result<T, ApiError>
+    where
+        F: FnOnce(&Connection) -> Result<T, ApiError>,
+    {
+        let conn = self.0.lock().map_err(|e| ApiError::Unknown(e.to_string()))?;
+        f(&*conn)
+    }
     /// Open the database at the given path. Creates parent dirs and file if needed.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, ApiError> {
         let path = path.as_ref();
@@ -28,14 +37,17 @@ impl Db {
             std::fs::create_dir_all(parent)?;
         }
         let conn = Connection::open(path)?;
+        conn.execute_batch(
+            "PRAGMA journal_mode=WAL; PRAGMA busy_timeout=5000;",
+        )?;
         let db = Self(std::sync::Arc::new(Mutex::new(conn)));
         db.init_schema()?;
         Ok(db)
     }
 
     fn init_schema(&self) -> Result<(), ApiError> {
-        let conn = self.0.lock().map_err(|e| ApiError::Unknown(e.to_string()))?;
-        conn.execute_batch(
+        self.execute(|conn| {
+            conn.execute_batch(
             "
             CREATE TABLE IF NOT EXISTS cameras (
                 id TEXT PRIMARY KEY,
@@ -65,8 +77,9 @@ impl Db {
             );
             INSERT OR IGNORE INTO settings (id, location_name) VALUES ('system', '');
             ",
-        )?;
-        Ok(())
+            )?;
+            Ok(())
+        })
     }
 
     /// Open the database using `SQLITE_PATH` (or `POLODB_PATH` for compatibility) env var, or default to `data/table-tv.db`.

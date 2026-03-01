@@ -63,7 +63,7 @@ async fn main() -> Result<(), crate::error::ApiError> {
     tracing_subscriber::registry()
         .with(
             EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("info,tower_http=debug")),
+                .unwrap_or_else(|_| EnvFilter::new("debug,tower_http=debug")),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();

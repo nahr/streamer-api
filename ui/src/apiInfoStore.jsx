@@ -4,7 +4,7 @@ const RETRY_INTERVAL_MS = 5000
 
 /**
  * Fetches API info from /api/info.
- * @returns {Promise<{ initialized: boolean, location_name?: string, has_users?: boolean }>}
+ * @returns {Promise<{ initialized: boolean, location_name?: string, has_users?: boolean, cameras_configured?: boolean }>}
  */
 export async function fetchApiInfo() {
   const res = await fetch('/api/info')
@@ -21,6 +21,7 @@ export function ApiInfoProvider({ children }) {
   const [initialized, setInitialized] = useState(null)
   const [locationName, setLocationName] = useState('')
   const [hasUsers, setHasUsers] = useState(false)
+  const [camerasConfigured, setCamerasConfigured] = useState(false)
   const [loading, setLoading] = useState(true)
   const [retrying, setRetrying] = useState(false)
   const intervalRef = useRef(null)
@@ -35,6 +36,7 @@ export function ApiInfoProvider({ children }) {
       setInitialized(data.initialized)
       setLocationName(data.location_name || '')
       setHasUsers(data.has_users ?? false)
+      setCamerasConfigured(data.cameras_configured ?? false)
       setRetrying(false)
       setLoading(false)
     } catch {
@@ -70,7 +72,7 @@ export function ApiInfoProvider({ children }) {
   }, [retrying])
 
   return (
-    <ApiInfoContext.Provider value={{ initialized, locationName, hasUsers, loading, retrying, refetch }}>
+    <ApiInfoContext.Provider value={{ initialized, locationName, hasUsers, camerasConfigured, loading, retrying, refetch }}>
       {children}
     </ApiInfoContext.Provider>
   )
@@ -78,7 +80,7 @@ export function ApiInfoProvider({ children }) {
 
 /**
  * Hook that provides API info from context.
- * @returns {{ initialized: boolean | null, locationName: string, hasUsers: boolean, loading: boolean, retrying: boolean, refetch: () => Promise<void> }}
+ * @returns {{ initialized: boolean | null, locationName: string, hasUsers: boolean, camerasConfigured: boolean, loading: boolean, retrying: boolean, refetch: () => Promise<void> }}
  */
 export function useApiInfo() {
   const ctx = useContext(ApiInfoContext)

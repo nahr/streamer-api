@@ -142,7 +142,7 @@ pub async fn validate_token(
             parts.len()
         )));
     }
-    tracing::debug!(token_len = token.len(), "validate token");
+    tracing::trace!(token_len = token.len(), "validate token");
     let header = decode_header(token)
         .map_err(|e| ApiError::Auth0ClientError(format!("Invalid token header: {}", e)))?;
     let kid = header
@@ -197,7 +197,7 @@ pub async fn validate_token(
         sid: v.get("sid").and_then(|x| x.as_str()).map(String::from),
         nonce: v.get("nonce").and_then(|x| x.as_str()).map(String::from),
     };
-    tracing::debug!(name = ?claims.name, email = ?claims.email, "JWT claims");
+    tracing::trace!(name = ?claims.name, email = ?claims.email, "JWT claims");
     Ok(claims)
 }
 

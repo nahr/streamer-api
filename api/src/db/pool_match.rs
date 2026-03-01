@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use super::{Db, Id, new_id};
+use super::{new_id, Db, Id};
 use crate::error::ApiError;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,10 +76,9 @@ fn parse_match_doc(
         serde_json::from_str(&player_one).map_err(|e| ApiError::Unknown(e.to_string()))?;
     let player_two: MatchPlayer =
         serde_json::from_str(&player_two).map_err(|e| ApiError::Unknown(e.to_string()))?;
-    let start_time: DateTime<Utc> =
-        chrono::DateTime::parse_from_rfc3339(&start_time)
-            .map_err(|e| ApiError::Unknown(e.to_string()))?
-            .with_timezone(&Utc);
+    let start_time: DateTime<Utc> = chrono::DateTime::parse_from_rfc3339(&start_time)
+        .map_err(|e| ApiError::Unknown(e.to_string()))?
+        .with_timezone(&Utc);
     let end_time = end_time
         .map(|s| {
             chrono::DateTime::parse_from_rfc3339(&s)
@@ -106,52 +105,56 @@ fn parse_match_doc(
 impl Db {
     /// List all pool matches.
     pub fn list_pool_matches(&self) -> Result<Vec<PoolMatchDoc>, ApiError> {
-        let conn = self.0.lock().map_err(|e| ApiError::Unknown(e.to_string()))?;
-        let mut stmt = conn.prepare(
-            "SELECT id, player_one, player_two, start_time, end_time, camera_id, started_by_sub, started_by_name, description, score_history FROM pool_matches",
-        )?;
-        let rows = stmt.query_map([], |row| {
-            parse_match_doc(
-                row.get(0)?,
-                row.get(1)?,
-                row.get(2)?,
-                row.get(3)?,
-                row.get(4)?,
-                row.get(5)?,
-                row.get(6)?,
-                row.get(7)?,
-                row.get(8)?,
-                row.get::<_, String>(9).unwrap_or_else(|_| "[]".to_string()),
-            )
-            .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))
-        })?;
-        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+        self.execute(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, player_one, player_two, start_time, end_time, camera_id, started_by_sub, started_by_name, description, score_history FROM pool_matches",
+            )?;
+            let rows = stmt.query_map([], |row| {
+                parse_match_doc(
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                    row.get(7)?,
+                    row.get(8)?,
+                    row.get::<_, String>(9).unwrap_or_else(|_| "[]".to_string()),
+                )
+                .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))
+            })?;
+            Ok(rows.collect::<Result<Vec<_>, _>>()?)
+        })
     }
 
     /// Find pool match by id.
     pub fn find_pool_match_by_id(&self, id: &str) -> Result<Option<PoolMatchDoc>, ApiError> {
-        let conn = self.0.lock().map_err(|e| ApiError::Unknown(e.to_string()))?;
-        let mut stmt = conn.prepare(
-            "SELECT id, player_one, player_two, start_time, end_time, camera_id, started_by_sub, started_by_name, description, score_history FROM pool_matches WHERE id = ?1",
-        )?;
-        let mut rows = stmt.query([id])?;
-        if let Some(row) = rows.next()? {
-            let doc = parse_match_doc(
-                row.get(0)?,
-                row.get(1)?,
-                row.get(2)?,
-                row.get(3)?,
-                row.get(4)?,
-                row.get(5)?,
-                row.get(6)?,
-                row.get(7)?,
-                row.get(8)?,
-                row.get::<_, String>(9).unwrap_or_else(|_| "[]".to_string()),
+        tracing::debug!(match_id = %id, "find_pool_match_by_id: acquiring db lock");
+        self.execute(|conn| {
+            tracing::debug!(match_id = %id, "find_pool_match_by_id: db lock acquired");
+            let mut stmt = conn.prepare(
+                "SELECT id, player_one, player_two, start_time, end_time, camera_id, started_by_sub, started_by_name, description, score_history FROM pool_matches WHERE id = ?1",
             )?;
-            Ok(Some(doc))
-        } else {
-            Ok(None)
-        }
+            let mut rows = stmt.query([id])?;
+            if let Some(row) = rows.next()? {
+                let doc = parse_match_doc(
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                    row.get(7)?,
+                    row.get(8)?,
+                    row.get::<_, String>(9).unwrap_or_else(|_| "[]".to_string()),
+                )?;
+                Ok(Some(doc))
+            } else {
+                Ok(None)
+            }
+        })
     }
 
     /// Find the active (ongoing) pool match for a camera. Returns the match if end_time is null.
@@ -159,28 +162,29 @@ impl Db {
         &self,
         camera_id: &str,
     ) -> Result<Option<PoolMatchDoc>, ApiError> {
-        let conn = self.0.lock().map_err(|e| ApiError::Unknown(e.to_string()))?;
-        let mut stmt = conn.prepare(
-            "SELECT id, player_one, player_two, start_time, end_time, camera_id, started_by_sub, started_by_name, description, score_history FROM pool_matches WHERE camera_id = ?1 AND end_time IS NULL",
-        )?;
-        let mut rows = stmt.query([camera_id])?;
-        if let Some(row) = rows.next()? {
-            let doc = parse_match_doc(
-                row.get(0)?,
-                row.get(1)?,
-                row.get(2)?,
-                row.get(3)?,
-                row.get(4)?,
-                row.get(5)?,
-                row.get(6)?,
-                row.get(7)?,
-                row.get(8)?,
-                row.get::<_, String>(9).unwrap_or_else(|_| "[]".to_string()),
+        self.execute(|conn| {
+            let mut stmt = conn.prepare(
+                "SELECT id, player_one, player_two, start_time, end_time, camera_id, started_by_sub, started_by_name, description, score_history FROM pool_matches WHERE camera_id = ?1 AND end_time IS NULL",
             )?;
-            Ok(Some(doc))
-        } else {
-            Ok(None)
-        }
+            let mut rows = stmt.query([camera_id])?;
+            if let Some(row) = rows.next()? {
+                let doc = parse_match_doc(
+                    row.get(0)?,
+                    row.get(1)?,
+                    row.get(2)?,
+                    row.get(3)?,
+                    row.get(4)?,
+                    row.get(5)?,
+                    row.get(6)?,
+                    row.get(7)?,
+                    row.get(8)?,
+                    row.get::<_, String>(9).unwrap_or_else(|_| "[]".to_string()),
+                )?;
+                Ok(Some(doc))
+            } else {
+                Ok(None)
+            }
+        })
     }
 
     /// Create a new pool match. Fails if there is already an active match for this camera.
@@ -194,28 +198,29 @@ impl Db {
             ));
         }
         let id = new_id();
-        let player_one =
-            serde_json::to_string(&match_data.player_one).map_err(|e| ApiError::Unknown(e.to_string()))?;
-        let player_two =
-            serde_json::to_string(&match_data.player_two).map_err(|e| ApiError::Unknown(e.to_string()))?;
+        let player_one = serde_json::to_string(&match_data.player_one)
+            .map_err(|e| ApiError::Unknown(e.to_string()))?;
+        let player_two = serde_json::to_string(&match_data.player_two)
+            .map_err(|e| ApiError::Unknown(e.to_string()))?;
         let start_time = match_data.start_time.to_rfc3339();
         let end_time = match_data.end_time.map(|dt| dt.to_rfc3339());
-        let conn = self.0.lock().map_err(|e| ApiError::Unknown(e.to_string()))?;
-        conn.execute(
-            "INSERT INTO pool_matches (id, player_one, player_two, start_time, end_time, camera_id, started_by_sub, started_by_name, description, score_history) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, '[]')",
-            rusqlite::params![
-                id,
-                player_one,
-                player_two,
-                start_time,
-                end_time,
-                match_data.camera_id,
-                match_data.started_by_sub,
-                match_data.started_by_name,
-                match_data.description,
-            ],
-        )?;
-        Ok(id)
+        self.execute(|conn| {
+            conn.execute(
+                "INSERT INTO pool_matches (id, player_one, player_two, start_time, end_time, camera_id, started_by_sub, started_by_name, description, score_history) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, '[]')",
+                rusqlite::params![
+                    id,
+                    player_one,
+                    player_two,
+                    start_time,
+                    end_time,
+                    match_data.camera_id,
+                    match_data.started_by_sub,
+                    match_data.started_by_name,
+                    match_data.description,
+                ],
+            )?;
+            Ok(id)
+        })
     }
 
     /// Update games_won for a player. When games_won == race_to for that player, sets end_time.
@@ -225,6 +230,7 @@ impl Db {
         player: u8,
         games_won: u8,
     ) -> Result<PoolMatchDoc, ApiError> {
+        tracing::debug!(match_id = %id, "update_pool_match_games_won: entry");
         let doc = self
             .find_pool_match_by_id(id)?
             .ok_or(ApiError::PoolMatchNotFound)?;
@@ -297,21 +303,25 @@ impl Db {
             serde_json::to_string(&score_history).map_err(|e| ApiError::Unknown(e.to_string()))?;
         let end_time_str = end_time.as_ref().map(|dt| dt.to_rfc3339());
 
-        let conn = self.0.lock().map_err(|e| ApiError::Unknown(e.to_string()))?;
-        let changed = conn.execute(
-            "UPDATE pool_matches SET player_one = ?1, player_two = ?2, end_time = ?3, score_history = ?4 WHERE id = ?5",
-            rusqlite::params![
-                player_one_json,
-                player_two_json,
-                end_time_str,
-                score_history_json,
-                id,
-            ],
-        )?;
-        if changed == 0 {
-            return Err(ApiError::PoolMatchNotFound);
-        }
+        tracing::debug!(match_id = %id, "update_pool_match_games_won: executing UPDATE");
+        self.execute(|conn| {
+            let changed = conn.execute(
+                "UPDATE pool_matches SET player_one = ?1, player_two = ?2, end_time = ?3, score_history = ?4 WHERE id = ?5",
+                rusqlite::params![
+                    player_one_json,
+                    player_two_json,
+                    end_time_str,
+                    score_history_json,
+                    id,
+                ],
+            )?;
+            if changed == 0 {
+                return Err(ApiError::PoolMatchNotFound);
+            }
+            Ok(())
+        })?;
 
+        tracing::debug!(match_id = %id, "update_pool_match_games_won: UPDATE done, re-fetching match");
         self.find_pool_match_by_id(id)?
             .ok_or(ApiError::PoolMatchNotFound)
     }
@@ -325,20 +335,25 @@ impl Db {
             return Ok(doc);
         }
         let end_time = Utc::now().to_rfc3339();
-        let conn = self.0.lock().map_err(|e| ApiError::Unknown(e.to_string()))?;
-        let changed =
-            conn.execute("UPDATE pool_matches SET end_time = ?1 WHERE id = ?2", rusqlite::params![end_time, id])?;
-        if changed == 0 {
-            return Err(ApiError::PoolMatchNotFound);
-        }
+        self.execute(|conn| {
+            let changed = conn.execute(
+                "UPDATE pool_matches SET end_time = ?1 WHERE id = ?2",
+                rusqlite::params![end_time, id],
+            )?;
+            if changed == 0 {
+                return Err(ApiError::PoolMatchNotFound);
+            }
+            Ok(())
+        })?;
         self.find_pool_match_by_id(id)?
             .ok_or(ApiError::PoolMatchNotFound)
     }
 
     /// Delete a pool match.
     pub fn delete_pool_match(&self, id: &str) -> Result<bool, ApiError> {
-        let conn = self.0.lock().map_err(|e| ApiError::Unknown(e.to_string()))?;
-        let changed = conn.execute("DELETE FROM pool_matches WHERE id = ?1", [id])?;
-        Ok(changed > 0)
+        self.execute(|conn| {
+            let changed = conn.execute("DELETE FROM pool_matches WHERE id = ?1", [id])?;
+            Ok(changed > 0)
+        })
     }
 }

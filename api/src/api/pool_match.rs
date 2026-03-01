@@ -290,13 +290,16 @@ pub async fn pool_matches_update_score(
     Path(id): Path<String>,
     Json(req): Json<PoolMatchUpdateScoreRequest>,
 ) -> Result<Json<PoolMatchResponse>, ApiError> {
+    tracing::debug!(match_id = %id, player = req.player, games_won = req.games_won, "update score: entry");
     if !valid_id(&id) {
         return Err(ApiError::BadRequest("Invalid pool match id".to_string()));
     }
+    tracing::debug!(match_id = %id, "update score: fetching match doc");
     let doc = app
         .db
         .find_pool_match_by_id(&id)?
         .ok_or(ApiError::PoolMatchNotFound)?;
+    tracing::debug!(match_id = %id, "update score: got match doc, checking end_time and auth");
     if doc.end_time.is_some() {
         return Err(ApiError::BadRequest(
             "Cannot update an ended match".to_string(),
@@ -312,9 +315,11 @@ pub async fn pool_matches_update_score(
             "Only the person who created the match can update it".to_string(),
         ));
     }
+    tracing::debug!(match_id = %id, "update score: calling update_pool_match_games_won");
     let updated = app
         .db
         .update_pool_match_games_won(&id, req.player, req.games_won)?;
+    tracing::debug!(match_id = %id, "update score: db update done, updating overlay");
     if let Some(ref cid) = updated.camera_id {
         if updated.end_time.is_some() {
             video::clear_overlay(&app.db, &app.overlay, cid, &app.rtmp_processes);
@@ -331,12 +336,14 @@ pub async fn pool_matches_update_score(
             );
         }
     }
+    tracing::debug!(match_id = %id, "update score: overlay done, fetching camera name");
     let camera_name = updated
         .camera_id
         .as_ref()
         .and_then(|cid| app.db.find_camera_by_id(cid).ok().flatten())
         .map(|c| c.name)
         .unwrap_or_default();
+    tracing::debug!(match_id = %id, "update score: building response");
     PoolMatchResponse::from_doc(updated, camera_name)
         .ok_or(ApiError::PoolMatchNotFound)
         .map(Json)
@@ -349,13 +356,16 @@ pub async fn pool_matches_end(
     State(app): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<PoolMatchResponse>, ApiError> {
+    tracing::debug!(match_id = %id, "end match: entry");
     if !valid_id(&id) {
         return Err(ApiError::BadRequest("Invalid pool match id".to_string()));
     }
+    tracing::debug!(match_id = %id, "end match: fetching match doc");
     let doc = app
         .db
         .find_pool_match_by_id(&id)?
         .ok_or(ApiError::PoolMatchNotFound)?;
+    tracing::debug!(match_id = %id, "end match: got match doc, checking auth");
     let can_end = auth.is_admin
         || doc
             .started_by_sub
@@ -367,16 +377,20 @@ pub async fn pool_matches_end(
             "Only the match creator or an admin can end the match".to_string(),
         ));
     }
+    tracing::debug!(match_id = %id, "end match: calling end_pool_match");
     let updated = app.db.end_pool_match(&id)?;
+    tracing::debug!(match_id = %id, "end match: db update done, clearing overlay");
     if let Some(ref cid) = updated.camera_id {
         video::clear_overlay(&app.db, &app.overlay, cid, &app.rtmp_processes);
     }
+    tracing::debug!(match_id = %id, "end match: overlay done, fetching camera name");
     let camera_name = updated
         .camera_id
         .as_ref()
         .and_then(|cid| app.db.find_camera_by_id(cid).ok().flatten())
         .map(|c| c.name)
         .unwrap_or_default();
+    tracing::debug!(match_id = %id, "end match: building response");
     PoolMatchResponse::from_doc(updated, camera_name)
         .ok_or(ApiError::PoolMatchNotFound)
         .map(Json)

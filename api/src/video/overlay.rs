@@ -237,6 +237,7 @@ pub fn update_overlay(
     _rtmp_processes: &rtmp::RtmpState,
     overlay_from_match: Option<MatchOverlay>,
 ) {
+    tracing::debug!(camera_id = %camera_id, "update_overlay: entry");
     let camera = match db.find_camera_by_id(camera_id) {
         Ok(Some(c)) => c,
         Ok(None) => {
@@ -254,6 +255,7 @@ pub fn update_overlay(
         return;
     }
 
+    tracing::debug!(camera_id = %camera_id, "update_overlay: resolving overlay data");
     let overlay = overlay_from_match.or_else(|| {
         db.find_active_pool_match_by_camera_id(camera_id)
             .ok()
@@ -265,12 +267,14 @@ pub fn update_overlay(
             })
     });
 
+    tracing::debug!(camera_id = %camera_id, "update_overlay: acquiring overlay_state write lock");
     if let Ok(mut guard) = overlay_state.write() {
         *guard = overlay.clone();
     }
-
+    tracing::debug!(camera_id = %camera_id, "update_overlay: write lock released, rendering PNG");
     let path = overlay_path_for_camera(&camera.name);
     render_overlay_png(&path, overlay.as_ref());
+    tracing::debug!(camera_id = %camera_id, "update_overlay: done");
 }
 
 /// Clear the overlay (e.g. when match ends).
@@ -280,18 +284,23 @@ pub fn clear_overlay(
     camera_id: &str,
     _rtmp_processes: &rtmp::RtmpState,
 ) {
+    tracing::debug!(camera_id = %camera_id, "clear_overlay: entry");
     let camera = match db.find_camera_by_id(camera_id) {
         Ok(Some(c)) if c.camera_type.is_rtsp() => c,
         _ => return,
     };
+    tracing::debug!(camera_id = %camera_id, "clear_overlay: acquiring overlay_state read lock");
     let current = overlay_state.read().ok().and_then(|g| (*g).clone());
     if current.is_none() {
         tracing::debug!(camera_id = %camera_id, "Overlay already cleared, skipping");
         return;
     }
+    tracing::debug!(camera_id = %camera_id, "clear_overlay: acquiring overlay_state write lock");
     if let Ok(mut guard) = overlay_state.write() {
         *guard = None;
     }
+    tracing::debug!(camera_id = %camera_id, "clear_overlay: write lock released, rendering PNG");
     let path = overlay_path_for_camera(&camera.name);
     render_overlay_png(&path, None);
+    tracing::debug!(camera_id = %camera_id, "clear_overlay: done");
 }
