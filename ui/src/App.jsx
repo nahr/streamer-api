@@ -7,7 +7,7 @@ import { useAuth0 } from '@auth0/auth0-react'
 import { useAuth } from './authStore.jsx'
 import { Layout } from './components/Layout'
 import { Home } from './pages/Home'
-import { Camera } from './features/cameras'
+import { Camera, Match } from './features/cameras'
 import { Admin } from './features/admin'
 import { FacebookCallback } from './pages/FacebookCallback'
 
@@ -132,6 +132,7 @@ function App() {
       <Route path="/" element={<Layout />}>
         <Route index element={<Home />} />
         <Route path="camera/:id" element={<RequireAuth><Camera /></RequireAuth>} />
+        <Route path="match/:id" element={<RequireAuth><Match /></RequireAuth>} />
         <Route path="admin" element={<Admin />} />
         <Route path="admin/server-settings" element={<Admin />} />
         <Route path="admin/camera-settings" element={<Admin />} />

@@ -38,6 +38,19 @@ export async function listMatches() {
 }
 
 /**
+ * @param {string} matchId
+ * @returns {Promise<PoolMatch>}
+ */
+export async function getMatch(matchId) {
+  const res = await fetchWithAuth(`/api/pool-matches/${matchId}`)
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || 'Failed to fetch match')
+  }
+  return res.json()
+}
+
+/**
  * @param {string} cameraId
  * @returns {Promise<PoolMatch | null>}
  */

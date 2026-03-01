@@ -116,7 +116,9 @@ export function Home() {
     return () => window.removeEventListener('focus', onFocus)
   }, [location.pathname, fetchMatches])
 
-  const cameraById = Object.fromEntries(cameras.map((c) => [c.id, c]))
+  const camerasInUse = new Set(
+    matches.filter((m) => !m.end_time).map((m) => m.camera_id).filter(Boolean)
+  )
 
   return (
     <Box sx={{ p: 2 }}>
@@ -147,7 +149,6 @@ export function Home() {
         <Paper variant="outlined" sx={{ mb: 3 }}>
           <List disablePadding>
             {matches.map((match) => {
-              const camera = cameraById[match.camera_id]
               const score = `${match.player_one.games_won} - ${match.player_two.games_won}`
               const winner = getMatchWinner(match)
               const secondary = (
@@ -175,8 +176,7 @@ export function Home() {
               return (
                 <ListItemButton
                   key={match.id}
-                  onClick={() => camera && navigate(`/camera/${camera.id}`)}
-                  disabled={!camera}
+                  onClick={() => navigate(`/match/${match.id}`)}
                 >
                   <SportsEsportsIcon sx={{ mr: 2, color: 'text.secondary' }} />
                   <ListItemText
@@ -213,18 +213,34 @@ export function Home() {
           ) : (
             <Paper variant="outlined">
               <List disablePadding>
-                {cameras.map((camera) => (
-                  <ListItemButton
-                    key={camera.id}
-                    onClick={() => navigate(`/camera/${camera.id}`)}
-                  >
-                    <VideocamIcon sx={{ mr: 2, color: 'text.secondary' }} />
-                    <ListItemText
-                      primary={camera.name}
-                      secondary={formatCameraType(camera.camera_type)}
-                    />
-                  </ListItemButton>
-                ))}
+                {cameras.map((camera) => {
+                  const inUse = camerasInUse.has(camera.id)
+                  return (
+                    <ListItemButton
+                      key={camera.id}
+                      onClick={() => !inUse && navigate(`/camera/${camera.id}`)}
+                      disabled={inUse}
+                    >
+                      <VideocamIcon sx={{ mr: 2, color: 'text.secondary' }} />
+                      <ListItemText
+                        primary={
+                          <>
+                            {camera.name}
+                            {inUse && (
+                              <Chip
+                                label="in use"
+                                size="small"
+                                component="span"
+                                sx={{ ml: 1, verticalAlign: 'middle' }}
+                              />
+                            )}
+                          </>
+                        }
+                        secondary={formatCameraType(camera.camera_type)}
+                      />
+                    </ListItemButton>
+                  )
+                })}
               </List>
             </Paper>
           )}

@@ -31,6 +31,9 @@ pub enum ApiError {
 
     #[error("Bad request: {0}")]
     BadRequest(String),
+
+    #[error("Forbidden: {0}")]
+    Forbidden(String),
 }
 
 impl IntoResponse for ApiError {
@@ -42,6 +45,7 @@ impl IntoResponse for ApiError {
             ApiError::InvalidCredentials => (StatusCode::UNAUTHORIZED, "Invalid credentials".to_string()),
             ApiError::Auth0ClientError(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
             ApiError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
+            ApiError::Forbidden(msg) => (StatusCode::FORBIDDEN, msg.clone()),
             _ => (StatusCode::INTERNAL_SERVER_ERROR, self.to_string()),
         };
         if status == StatusCode::INTERNAL_SERVER_ERROR {

@@ -28,7 +28,7 @@ const STATE_TTL_MINUTES: i64 = 10;
 #[derive(Serialize, Deserialize)]
 struct StatePayload {
     r: String, // return_to
-    t: i64,   // timestamp
+    t: i64,    // timestamp
 }
 
 fn create_signed_state(return_to: &str, secret: &[u8]) -> String {
@@ -67,7 +67,8 @@ fn verify_signed_state(state: &str, secret: &[u8]) -> Option<String> {
 /// Short-lived cache for user tokens (auth_key -> access_token).
 #[derive(Clone, Default)]
 pub struct FacebookTokenCache {
-    auth_key_to_token: std::sync::Arc<RwLock<HashMap<String, (String, chrono::DateTime<chrono::Utc>)>>>,
+    auth_key_to_token:
+        std::sync::Arc<RwLock<HashMap<String, (String, chrono::DateTime<chrono::Utc>)>>>,
 }
 
 impl FacebookTokenCache {
@@ -105,14 +106,20 @@ pub async fn facebook_auth(
     State(_app): State<AppState>,
     Query(q): Query<AuthQuery>,
 ) -> Result<Redirect, ApiError> {
-    let app_id = std::env::var("FACEBOOK_APP_ID")
-        .map_err(|_| ApiError::BadRequest("Facebook OAuth not configured. Set FACEBOOK_APP_ID.".to_string()))?;
-    let base_url = std::env::var("BASE_URL")
-        .map_err(|_| ApiError::BadRequest("BASE_URL must be set for OAuth callback (e.g. https://example.com).".to_string()))?;
+    let app_id = std::env::var("FACEBOOK_APP_ID").map_err(|_| {
+        ApiError::BadRequest("Facebook OAuth not configured. Set FACEBOOK_APP_ID.".to_string())
+    })?;
+    let base_url = std::env::var("BASE_URL").map_err(|_| {
+        ApiError::BadRequest(
+            "BASE_URL must be set for OAuth callback (e.g. https://example.com).".to_string(),
+        )
+    })?;
 
     let return_to = q.return_to.trim();
     if return_to.is_empty() || !return_to.starts_with('/') {
-        return Err(ApiError::BadRequest("return_to must be a path starting with /.".to_string()));
+        return Err(ApiError::BadRequest(
+            "return_to must be a path starting with /.".to_string(),
+        ));
     }
 
     let app_secret = std::env::var("FACEBOOK_APP_SECRET")
@@ -147,9 +154,12 @@ pub async fn facebook_exchange_code(
     tracing::info!("Facebook exchange-code: received request");
     let app_secret = std::env::var("FACEBOOK_APP_SECRET")
         .map_err(|_| ApiError::BadRequest("Facebook OAuth not configured.".to_string()))?;
-    let return_to = verify_signed_state(req.state.trim(), app_secret.as_bytes())
-        .ok_or_else(|| {
-            tracing::warn!(state_len = req.state.len(), "Facebook exchange-code: invalid or expired state");
+    let return_to =
+        verify_signed_state(req.state.trim(), app_secret.as_bytes()).ok_or_else(|| {
+            tracing::warn!(
+                state_len = req.state.len(),
+                "Facebook exchange-code: invalid or expired state"
+            );
             ApiError::BadRequest("Invalid or expired state. Please try again.".to_string())
         })?;
 
@@ -211,7 +221,8 @@ pub async fn facebook_exchange_code(
         .ok_or_else(|| ApiError::Unknown("Facebook response missing access_token".to_string()))?;
 
     let auth_key = Uuid::new_v4().to_string();
-    app.facebook_tokens.store_token(auth_key.clone(), access_token.to_string());
+    app.facebook_tokens
+        .store_token(auth_key.clone(), access_token.to_string());
     tracing::info!(auth_key = %auth_key, return_to = %return_to, "Facebook exchange-code: returning auth_key");
 
     Ok(Json(serde_json::json!({
@@ -257,7 +268,10 @@ pub async fn facebook_live_url(
     State(app): State<AppState>,
     axum::Json(req): axum::Json<FacebookLiveUrlRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    tracing::info!(has_auth_key = req.auth_key.is_some(), "Facebook live-url: received request");
+    tracing::info!(
+        has_auth_key = req.auth_key.is_some(),
+        "Facebook live-url: received request"
+    );
     let auth_key = req
         .auth_key
         .as_ref()
@@ -269,15 +283,12 @@ pub async fn facebook_live_url(
             )
         })?;
 
-    let token = app
-        .facebook_tokens
-        .take_token(auth_key)
-        .ok_or_else(|| {
-            tracing::warn!(auth_key = %auth_key, "Facebook live-url: auth_key not found or expired");
-            ApiError::BadRequest(
-                "Session expired or invalid. Please sign in again with Facebook.".to_string(),
-            )
-        })?;
+    let token = app.facebook_tokens.take_token(auth_key).ok_or_else(|| {
+        tracing::warn!(auth_key = %auth_key, "Facebook live-url: auth_key not found or expired");
+        ApiError::BadRequest(
+            "Session expired or invalid. Please sign in again with Facebook.".to_string(),
+        )
+    })?;
 
     // User tokens always stream to "me" (user's profile)
     let target_id = "me";
@@ -295,7 +306,7 @@ pub async fn facebook_live_url(
         .unwrap_or("EVERYONE");
     let privacy = format!(r#"{{"value":"{}"}}"#, privacy_value);
 
-    let url = format!(
+    let url: String = format!(
         "{}/{}/live_videos?status=LIVE_NOW&title={}&description={}&privacy={}&access_token={}",
         GRAPH_API_BASE,
         target_id,
@@ -304,6 +315,8 @@ pub async fn facebook_live_url(
         urlencoding::encode(&privacy),
         token.trim()
     );
+
+    tracing::info!(title = %title, description=%description, privacy=%privacy, "starting facebook stream");
 
     let client = reqwest::Client::new();
     let res = client
@@ -358,7 +371,10 @@ pub async fn facebook_live_url(
 pub fn routes() -> axum::Router<AppState> {
     axum::Router::new()
         .route("/api/facebook/auth", get(facebook_auth))
-        .route("/api/facebook/exchange-code", axum::routing::post(facebook_exchange_code))
+        .route(
+            "/api/facebook/exchange-code",
+            axum::routing::post(facebook_exchange_code),
+        )
         .route("/api/facebook/status", get(facebook_status))
         .route(
             "/api/facebook/live-url",

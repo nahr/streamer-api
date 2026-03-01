@@ -252,14 +252,31 @@ pub async fn pool_matches_create(
 }
 
 /// PATCH /api/pool-matches/:id/score - Update games_won for a player. Sets end_time when games_won == race_to.
+/// Only the user who created the match can update it.
 pub async fn pool_matches_update_score(
-    _auth: AuthenticatedUser,
+    auth: AuthenticatedUser,
     State(app): State<AppState>,
     Path(id): Path<String>,
     Json(req): Json<PoolMatchUpdateScoreRequest>,
 ) -> Result<Json<PoolMatchResponse>, ApiError> {
     let oid =
         ObjectId::parse_str(&id).map_err(|_| ApiError::BadRequest("Invalid pool match id".to_string()))?;
+    let doc = app.db
+        .find_pool_match_by_id(&oid)?
+        .ok_or(ApiError::PoolMatchNotFound)?;
+    if doc.end_time.is_some() {
+        return Err(ApiError::BadRequest("Cannot update an ended match".to_string()));
+    }
+    let can_update = doc
+        .started_by_sub
+        .as_ref()
+        .map(|sub| sub == &auth.sub)
+        .unwrap_or(false);
+    if !can_update {
+        return Err(ApiError::Forbidden(
+            "Only the person who created the match can update it".to_string(),
+        ));
+    }
     let updated = app.db.update_pool_match_games_won(&oid, req.player, req.games_won)?;
     if let Some(ref cid) = updated.camera_id {
         if updated.end_time.is_some() {
@@ -289,13 +306,28 @@ pub async fn pool_matches_update_score(
 }
 
 /// PATCH /api/pool-matches/:id/end - End the match early (set end_time).
+/// The match creator or an admin can end a match.
 pub async fn pool_matches_end(
-    _auth: AuthenticatedUser,
+    auth: AuthenticatedUser,
     State(app): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<PoolMatchResponse>, ApiError> {
     let oid =
         ObjectId::parse_str(&id).map_err(|_| ApiError::BadRequest("Invalid pool match id".to_string()))?;
+    let doc = app.db
+        .find_pool_match_by_id(&oid)?
+        .ok_or(ApiError::PoolMatchNotFound)?;
+    let can_end = auth.is_admin
+        || doc
+            .started_by_sub
+            .as_ref()
+            .map(|sub| sub == &auth.sub)
+            .unwrap_or(false);
+    if !can_end {
+        return Err(ApiError::Forbidden(
+            "Only the match creator or an admin can end the match".to_string(),
+        ));
+    }
     let updated = app.db.end_pool_match(&oid)?;
     if let Some(ref cid) = updated.camera_id {
         video::clear_overlay(&app.db, &app.overlay, cid, &app.rtmp_processes);
