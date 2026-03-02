@@ -100,7 +100,7 @@ export function MatchScoreControls({
           onClick={onEndMatch}
           disabled={scoreUpdating}
         >
-          End match early
+          {isPractice ? 'End practice' : 'End match early'}
         </Button>
       )}
       {!isActive && showEndedMessage && (

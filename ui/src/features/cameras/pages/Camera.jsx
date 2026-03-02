@@ -26,8 +26,11 @@ import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import StopIcon from '@mui/icons-material/Stop'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import LiveTvIcon from '@mui/icons-material/LiveTv'
+import HistoryIcon from '@mui/icons-material/History'
+import DownloadIcon from '@mui/icons-material/Download'
 import { getCamera, getFacebookLiveUrl, getFacebookStatus, getRtmpStreamStatus, formatCameraType, startRtmpStream, stopRtmpStream } from '../api/cameras.js'
-import { getActiveMatch, createMatch, updateScore, endMatch } from '../api/poolMatches.js'
+import { getActiveMatch, createMatch, updateScore, endMatch, listMatches, downloadGameRecording } from '../api/poolMatches.js'
+import { formatTime, formatMatchTitle } from '../../../utils/format.js'
 import { useApiInfo } from '../../../apiInfoStore.jsx'
 import { getToken, urlWithToken } from '../../../apiClient.js'
 import { LiveTimestamp } from '../../../components/LiveTimestamp.jsx'
@@ -75,6 +78,8 @@ export function Camera() {
   const [streamUrl, setStreamUrl] = useState('')
   const [streamError, setStreamError] = useState(false)
   const [previewLoaded, setPreviewLoaded] = useState(false)
+  const [cameraMatches, setCameraMatches] = useState([])
+  const [downloadingGame, setDownloadingGame] = useState(null)
 
   useEffect(() => {
     if (!camera?.id) return
@@ -130,6 +135,21 @@ export function Camera() {
   useEffect(() => {
     if (camera?.id) fetchActiveMatch()
   }, [camera?.id, fetchActiveMatch])
+
+  const fetchCameraMatches = useCallback(async () => {
+    if (!camera?.id) return
+    try {
+      const data = await listMatches()
+      const forCamera = (data || []).filter((m) => m.camera_id === camera.id)
+      setCameraMatches(forCamera.sort((a, b) => (b.start_time || 0) - (a.start_time || 0)))
+    } catch {
+      setCameraMatches([])
+    }
+  }, [camera?.id])
+
+  useEffect(() => {
+    if (camera?.id) fetchCameraMatches()
+  }, [camera?.id, fetchCameraMatches])
 
   useEffect(() => {
     if (!camera) return
@@ -251,6 +271,7 @@ export function Camera() {
       if (updated.end_time) {
         await fetchActiveMatch()
       }
+      fetchCameraMatches()
     } catch {
       setActiveMatch(activeMatch)
     } finally {
@@ -365,6 +386,7 @@ export function Camera() {
     try {
       await endMatch(activeMatch.id)
       await fetchActiveMatch()
+      fetchCameraMatches()
     } finally {
       setScoreUpdating(false)
     }
@@ -490,6 +512,103 @@ export function Camera() {
             </Button>
           )}
         </Box>
+
+        {cameraMatches.length > 0 && (
+          <Box sx={{ mt: 3, pt: 2, borderTop: 1, borderColor: 'divider' }}>
+            <Typography variant="h6" sx={{ mb: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+              <HistoryIcon fontSize="small" />
+              Practice & match history
+            </Typography>
+            <Stack spacing={3}>
+              {cameraMatches.map((match) => {
+                const hasHistory = (match.score_history?.length ?? 0) > 0
+                if (!hasHistory) return null
+                return (
+                  <Box key={match.id}>
+                    <Typography variant="subtitle1" fontWeight={600} sx={{ mb: 1 }}>
+                      {formatMatchTitle(match)}
+                      <Typography component="span" variant="body2" color="text.secondary" sx={{ ml: 1 }}>
+                        {formatTime(match.start_time, 'full')}
+                        {match.end_time && ` – ${formatTime(match.end_time, 'full')}`}
+                      </Typography>
+                    </Typography>
+                    <Button
+                      size="small"
+                      sx={{ mb: 1 }}
+                      onClick={() => navigate(`/match/${match.id}`)}
+                    >
+                      View match
+                    </Button>
+                    <Stack component="ul" spacing={0} sx={{ listStyle: 'none', pl: 0, m: 0 }}>
+                      {match.score_history.map((entry, i) => {
+                        const prev = i > 0 ? match.score_history[i - 1] : { player_one_games_won: 0, player_two_games_won: 0 }
+                        const p1Increased = entry.player_one_games_won > prev.player_one_games_won
+                        const player = p1Increased ? match.player_one.name : match.player_two.name
+                        const gameNumber = entry.player_one_games_won + entry.player_two_games_won
+                        const rackNumber = entry.player_one_games_won
+                        const startMs = i === 0 ? match.start_time : prev.timestamp
+                        const downloadStartMs =
+                          match.match_type === 'practice' && i > 0 ? prev.timestamp + 2000 : startMs
+                        const durationSec = Math.max(1, (entry.timestamp - downloadStartMs) / 1000)
+                        const downloadKey = `${match.id}-${i}`
+                        const isDownloading = downloadingGame === downloadKey
+                        const handleDownload = async () => {
+                          if (!match.camera_id) return
+                          setDownloadingGame(downloadKey)
+                          try {
+                            await downloadGameRecording(
+                              match.camera_id,
+                              downloadStartMs,
+                              durationSec,
+                              match.match_type === 'practice' ? `rack-${rackNumber}.mp4` : `game-${gameNumber}.mp4`
+                            )
+                          } catch (err) {
+                            console.error('Download failed', err)
+                          } finally {
+                            setDownloadingGame(null)
+                          }
+                        }
+                        return (
+                          <Box
+                            key={i}
+                            component="li"
+                            sx={{
+                              display: 'flex',
+                              alignItems: 'center',
+                              gap: 2,
+                              py: 1,
+                              borderBottom: i < match.score_history.length - 1 ? 1 : 0,
+                              borderColor: 'divider',
+                            }}
+                          >
+                            <Typography variant="body2" color="text.secondary" sx={{ minWidth: 200 }}>
+                              {formatTime(startMs, 'withSeconds')} – {formatTime(entry.timestamp, 'withSeconds')}
+                            </Typography>
+                            <Typography variant="body1" sx={{ flex: 1 }}>
+                              {match.match_type === 'practice'
+                                ? `Rack ${rackNumber}`
+                                : `${player} won game ${gameNumber}, ${entry.player_one_games_won} – ${entry.player_two_games_won}`}
+                            </Typography>
+                            {match.camera_id && (
+                              <Button
+                                size="small"
+                                startIcon={<DownloadIcon />}
+                                onClick={handleDownload}
+                                disabled={isDownloading}
+                              >
+                                {isDownloading ? 'Downloading…' : 'Download'}
+                              </Button>
+                            )}
+                          </Box>
+                        )
+                      })}
+                    </Stack>
+                  </Box>
+                )
+              })}
+            </Stack>
+          </Box>
+        )}
       </Paper>
 
       <Dialog open={rtmpDialogOpen} onClose={() => setRtmpDialogOpen(false)} maxWidth="sm" fullWidth>
