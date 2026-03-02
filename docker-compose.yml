@@ -4,20 +4,18 @@ services:
     volumes:
       - ./docker/mediamtx.yml:/mediamtx.yml
       - table-tv-data:/recordings
-    command: ["/mediamtx", "/mediamtx.yml"]
+    command: ["/mediamtx.yml"]
     # Table TV API syncs paths via Control API; FFmpeg reads streams from RTSP
     ports:
-      - "8554:8554"   # RTSP (optional, for external access)
-      - "9997:9997"   # Control API (internal)
-      - "9996:9996"   # Playback (recordings download)
+      - "8554:8554" # RTSP (optional, for external access)
+      - "9997:9997" # Control API (internal)
+      - "9996:9996" # Playback (recordings download)
 
   table-tv:
     build:
       context: .
       dockerfile: Dockerfile
       target: table-tv
-    depends_on:
-      - mediamtx
     environment:
       - USE_STUNNEL_FOR_RTMPS=${USE_STUNNEL_FOR_RTMPS:-}
       - MEDIAMTX_API_URL=http://mediamtx:9997

@@ -5,7 +5,7 @@
 /**
  * Format a timestamp (ms since epoch) for display.
  * @param {number} ms
- * @param {'short'|'medium'|'full'} [style='medium'] - short: time only; medium: date+time; full: month/day/hour/min
+ * @param {'short'|'medium'|'full'|'withSeconds'} [style='medium'] - short: time only; medium: date+time; full: month/day/hour/min; withSeconds: date+time with seconds
  * @returns {string}
  */
 export function formatTime(ms, style = 'medium') {
@@ -19,6 +19,16 @@ export function formatTime(ms, style = 'medium') {
       day: 'numeric',
       hour: 'numeric',
       minute: '2-digit',
+    })
+  }
+  if (style === 'withSeconds') {
+    return d.toLocaleString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+      hour: 'numeric',
+      minute: '2-digit',
+      second: '2-digit',
     })
   }
   return d.toLocaleString(undefined, {

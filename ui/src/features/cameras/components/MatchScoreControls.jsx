@@ -29,7 +29,7 @@ export function MatchScoreControls({
   const isActive = !match.end_time
   const isPractice = match.match_type === 'practice'
   const p1 = match.player_one
-  const p1Maxed = isPractice && p1.race_to > 0 ? p1.games_won >= p1.race_to : p1.games_won >= p1.race_to
+  const p1Maxed = p1.race_to > 0 && p1.games_won >= p1.race_to
 
   return (
     <Stack spacing={2}>
@@ -38,7 +38,7 @@ export function MatchScoreControls({
           <IconButton
             size="small"
             onClick={() => onScoreChange(1, -1)}
-            disabled={scoreUpdating || p1.games_won === 0}
+            disabled={scoreUpdating || isPractice || p1.games_won === 0}
             aria-label={isPractice ? 'Decrease racks' : 'Decrease player 1 score'}
           >
             <RemoveIcon />

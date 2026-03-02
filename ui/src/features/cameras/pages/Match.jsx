@@ -425,7 +425,11 @@ export function Match() {
                 const gameNumber = entry.player_one_games_won + entry.player_two_games_won
                 const rackNumber = entry.player_one_games_won
                 const startMs = i === 0 ? match.start_time : prev.timestamp
-                const durationSec = Math.max(1, (entry.timestamp - startMs) / 1000)
+                // For practice racks (i>0): add 2s buffer so we're inside the MediaMTX segment
+                // (new segment starts ~150ms after score due to finish_recording_segment)
+                const downloadStartMs =
+                  match.match_type === 'practice' && i > 0 ? prev.timestamp + 2000 : startMs
+                const durationSec = Math.max(1, (entry.timestamp - downloadStartMs) / 1000)
                 const isDownloading = downloadingGame === i
                 const handleDownload = async () => {
                   if (!match.camera_id) return
@@ -433,7 +437,7 @@ export function Match() {
                   try {
                     await downloadGameRecording(
                       match.camera_id,
-                      startMs,
+                      downloadStartMs,
                       durationSec,
                       match.match_type === 'practice' ? `rack-${rackNumber}.mp4` : `game-${gameNumber}.mp4`
                     )
@@ -456,8 +460,8 @@ export function Match() {
                       borderColor: 'divider',
                     }}
                   >
-                    <Typography variant="body2" color="text.secondary" sx={{ minWidth: 140 }}>
-                      {formatTime(entry.timestamp)}
+                    <Typography variant="body2" color="text.secondary" sx={{ minWidth: 200 }}>
+                      {formatTime(startMs, 'withSeconds')} – {formatTime(entry.timestamp, 'withSeconds')}
                     </Typography>
                     <Typography variant="body1" fontWeight={600} sx={{ flex: 1 }}>
                       {match.match_type === 'practice'
@@ -507,86 +511,86 @@ export function Match() {
             </Box>
           ) : (
             <>
-          {rtmpActive && (
-            <Alert severity="info" sx={{ mb: 2 }}>
-              Stream is live. Click &quot;Stop stream&quot; below to end the broadcast.
-            </Alert>
-          )}
-          {rtmpError && (
-            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setRtmpError('')}>
-              {rtmpError}
-            </Alert>
-          )}
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Push the stream to YouTube Live, Facebook, or other RTMP destinations.
-            The match overlay (player names, ratings, score) is burned into the stream.
-          </Typography>
-          {facebookConfigured && (
-            <>
-              <FormControl fullWidth sx={{ mb: 2 }} disabled={rtmpStarting}>
-                <InputLabel>Privacy</InputLabel>
-                <Select
-                  value={goLivePrivacy}
-                  label="Privacy"
-                  onChange={(e) => {
-                  const v = e.target.value
-                  setGoLivePrivacy(v)
-                  localStorage.setItem('table-tv-go-live-privacy', v)
-                }}
-                >
-                  <MenuItem value="EVERYONE">Public</MenuItem>
-                  <MenuItem value="ALL_FRIENDS">Friends</MenuItem>
-                  <MenuItem value="FRIENDS_OF_FRIENDS">Friends of friends</MenuItem>
-                  <MenuItem value="SELF">Only me</MenuItem>
-                </Select>
-              </FormControl>
-              <Button
-                variant="outlined"
-                fullWidth
-                sx={{ mb: 1 }}
-                onClick={handleGoLiveFacebook}
-                disabled={rtmpStarting}
-              >
-                {rtmpStarting ? 'Starting…' : 'Go Live with Facebook'}
-              </Button>
-              <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 2 }}>
-                You&apos;ll sign in with Facebook; the stream will appear on your profile.
+              {rtmpActive && (
+                <Alert severity="info" sx={{ mb: 2 }}>
+                  Stream is live. Click &quot;Stop stream&quot; below to end the broadcast.
+                </Alert>
+              )}
+              {rtmpError && (
+                <Alert severity="error" sx={{ mb: 2 }} onClose={() => setRtmpError('')}>
+                  {rtmpError}
+                </Alert>
+              )}
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Push the stream to YouTube Live, Facebook, or other RTMP destinations.
+                The match overlay (player names, ratings, score) is burned into the stream.
               </Typography>
-            </>
-          )}
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-            Or enter RTMP URL manually:
-          </Typography>
-          <TextField
-            label="RTMP URL"
-            placeholder="e.g. rtmp://a.rtmp.youtube.com/live2/xxxx"
-            value={rtmpUrl}
-            onChange={(e) => setRtmpUrl(e.target.value)}
-            fullWidth
-            error={!!rtmpError}
-            helperText={rtmpError}
-            disabled={rtmpStarting}
-          />
+              {facebookConfigured && (
+                <>
+                  <FormControl fullWidth sx={{ mb: 2 }} disabled={rtmpStarting}>
+                    <InputLabel>Privacy</InputLabel>
+                    <Select
+                      value={goLivePrivacy}
+                      label="Privacy"
+                      onChange={(e) => {
+                        const v = e.target.value
+                        setGoLivePrivacy(v)
+                        localStorage.setItem('table-tv-go-live-privacy', v)
+                      }}
+                    >
+                      <MenuItem value="EVERYONE">Public</MenuItem>
+                      <MenuItem value="ALL_FRIENDS">Friends</MenuItem>
+                      <MenuItem value="FRIENDS_OF_FRIENDS">Friends of friends</MenuItem>
+                      <MenuItem value="SELF">Only me</MenuItem>
+                    </Select>
+                  </FormControl>
+                  <Button
+                    variant="outlined"
+                    fullWidth
+                    sx={{ mb: 1 }}
+                    onClick={handleGoLiveFacebook}
+                    disabled={rtmpStarting}
+                  >
+                    {rtmpStarting ? 'Starting…' : 'Go Live with Facebook'}
+                  </Button>
+                  <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 2 }}>
+                    You&apos;ll sign in with Facebook; the stream will appear on your profile.
+                  </Typography>
+                </>
+              )}
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                Or enter RTMP URL manually:
+              </Typography>
+              <TextField
+                label="RTMP URL"
+                placeholder="e.g. rtmp://a.rtmp.youtube.com/live2/xxxx"
+                value={rtmpUrl}
+                onChange={(e) => setRtmpUrl(e.target.value)}
+                fullWidth
+                error={!!rtmpError}
+                helperText={rtmpError}
+                disabled={rtmpStarting}
+              />
             </>
           )}
         </DialogContent>
         {!(rtmpStarting && isFacebookLiveFlow) && (
-        <DialogActions>
-          <Button onClick={() => setRtmpDialogOpen(false)}>Cancel</Button>
-          {rtmpActive && (
-            <Button
-              variant="outlined"
-              color="error"
-              onClick={handleStopRtmp}
-              disabled={rtmpStopping}
-            >
-              {rtmpStopping ? 'Stopping…' : 'Stop stream'}
+          <DialogActions>
+            <Button onClick={() => setRtmpDialogOpen(false)}>Cancel</Button>
+            {rtmpActive && (
+              <Button
+                variant="outlined"
+                color="error"
+                onClick={handleStopRtmp}
+                disabled={rtmpStopping}
+              >
+                {rtmpStopping ? 'Stopping…' : 'Stop stream'}
+              </Button>
+            )}
+            <Button variant="contained" onClick={handleStartRtmp} disabled={rtmpStarting || rtmpActive}>
+              {rtmpStarting ? 'Starting…' : 'Start stream'}
             </Button>
-          )}
-          <Button variant="contained" onClick={handleStartRtmp} disabled={rtmpStarting || rtmpActive}>
-            {rtmpStarting ? 'Starting…' : 'Start stream'}
-          </Button>
-        </DialogActions>
+          </DialogActions>
         )}
       </Dialog>
     </Box>
