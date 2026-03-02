@@ -20,7 +20,7 @@ use crate::api::AppState;
 use crate::error::ApiError;
 
 #[derive(Debug, Deserialize)]
-struct Auth0Claims {
+pub struct Auth0Claims {
     sub: String,
     #[serde(default)]
     email: Option<String>,

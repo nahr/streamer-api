@@ -7,11 +7,12 @@ services:
     command: ["/mediamtx.yml"]
     # Table TV API syncs paths via Control API; FFmpeg reads streams from RTSP
     ports:
-      - "8554:8554" # RTSP (optional, for external access)
-      - "9997:9997" # Control API (internal)
-      - "9996:9996" # Playback (recordings download)
+      - "18554:8554" # RTSP (optional, for external access)
+      - "19997:9997" # Control API (internal)
+      - "19996:9996" # Playback (recordings download)
 
   table-tv:
+    platform: linux/amd64
     build:
       context: .
       dockerfile: Dockerfile

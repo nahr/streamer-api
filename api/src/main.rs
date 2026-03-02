@@ -54,6 +54,7 @@ fn init_ssl_certs_macos() {}
 
 #[tokio::main]
 async fn main() -> Result<(), crate::error::ApiError> {
+    println!("[table-tv] main: starting");
     init_ssl_certs_macos();
     dotenvy::dotenv().ok();
     // When running from api/, also try parent .env (workspace root)
@@ -67,6 +68,10 @@ async fn main() -> Result<(), crate::error::ApiError> {
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
+    tracing::info!("[table-tv] main: opening db");
     let db = db::Db::open_default()?;
-    api::ApiServer::serve(db).await
+    tracing::info!("[table-tv] main: db ok, starting server");
+    api::ApiServer::serve(db).await?;
+    tracing::info!("[table-tv] exiting");
+    Ok(())
 }

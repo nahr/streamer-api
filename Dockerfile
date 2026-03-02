@@ -38,6 +38,7 @@ RUN cargo build --release && rm -rf src
 FROM api-deps AS api-builder
 COPY api/src ./src
 COPY api/assets ./assets
+RUN touch ./src/main.rs
 RUN cargo build --release
 
 # =============================================================================
