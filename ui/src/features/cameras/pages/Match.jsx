@@ -32,13 +32,13 @@ import { getToken, urlWithToken } from '../../../apiClient.js'
 import { MatchDuration } from '../../../components/MatchDuration.jsx'
 import { StreamPreview } from '../components/StreamPreview.jsx'
 import { MatchScoreControls } from '../components/MatchScoreControls.jsx'
-import { formatTime, formatMatchWinner, formatMatchTitle, getMatchWinner } from '../../../utils/format.js'
+import { formatTime, formatMatchWinner, formatMatchTitle, getMatchWinner, isRecordingAvailable, formatRecordingFilename } from '../../../utils/format.js'
 
 export function Match() {
   const { id } = useParams()
   const navigate = useNavigate()
   const [searchParams, setSearchParams] = useSearchParams()
-  const { locationName } = useApiInfo()
+  const { locationName, recordDeleteAfter } = useApiInfo()
   const [match, setMatch] = useState(null)
   const [camera, setCamera] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -439,7 +439,7 @@ export function Match() {
                       match.camera_id,
                       downloadStartMs,
                       durationSec,
-                      match.match_type === 'practice' ? `rack-${rackNumber}.mp4` : `game-${gameNumber}.mp4`
+                      formatRecordingFilename(startMs, match.match_type, match.match_type === 'practice' ? rackNumber : gameNumber)
                     )
                   } catch (err) {
                     console.error('Download failed', err)
@@ -468,7 +468,7 @@ export function Match() {
                         ? `Rack ${rackNumber}`
                         : `${player} won game ${gameNumber}, ${entry.player_one_games_won} – ${entry.player_two_games_won}`}
                     </Typography>
-                    {match.camera_id && (
+                    {match.camera_id && isRecordingAvailable(entry.timestamp, recordDeleteAfter) && (
                       <Button
                         size="small"
                         startIcon={<DownloadIcon />}

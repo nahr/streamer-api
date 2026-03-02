@@ -22,6 +22,7 @@ export function ApiInfoProvider({ children }) {
   const [locationName, setLocationName] = useState('')
   const [hasUsers, setHasUsers] = useState(false)
   const [camerasConfigured, setCamerasConfigured] = useState(false)
+  const [recordDeleteAfter, setRecordDeleteAfter] = useState('')
   const [loading, setLoading] = useState(true)
   const [retrying, setRetrying] = useState(false)
   const intervalRef = useRef(null)
@@ -37,6 +38,7 @@ export function ApiInfoProvider({ children }) {
       setLocationName(data.location_name || '')
       setHasUsers(data.has_users ?? false)
       setCamerasConfigured(data.cameras_configured ?? false)
+      setRecordDeleteAfter(data.record_delete_after || '')
       setRetrying(false)
       setLoading(false)
     } catch {
@@ -72,7 +74,7 @@ export function ApiInfoProvider({ children }) {
   }, [retrying])
 
   return (
-    <ApiInfoContext.Provider value={{ initialized, locationName, hasUsers, camerasConfigured, loading, retrying, refetch }}>
+    <ApiInfoContext.Provider value={{ initialized, locationName, hasUsers, camerasConfigured, recordDeleteAfter, loading, retrying, refetch }}>
       {children}
     </ApiInfoContext.Provider>
   )
@@ -80,7 +82,7 @@ export function ApiInfoProvider({ children }) {
 
 /**
  * Hook that provides API info from context.
- * @returns {{ initialized: boolean | null, locationName: string, hasUsers: boolean, camerasConfigured: boolean, loading: boolean, retrying: boolean, refetch: () => Promise<void> }}
+ * @returns {{ initialized: boolean | null, locationName: string, hasUsers: boolean, camerasConfigured: boolean, recordDeleteAfter: string, loading: boolean, retrying: boolean, refetch: () => Promise<void> }}
  */
 export function useApiInfo() {
   const ctx = useContext(ApiInfoContext)

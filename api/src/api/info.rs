@@ -15,6 +15,9 @@ pub struct ApiServerInfo {
     /// True if at least one camera is configured.
     #[serde(default)]
     pub cameras_configured: bool,
+    /// Recording retention (e.g. "24h", "7d"). Empty or "0" = keep forever.
+    #[serde(default)]
+    pub record_delete_after: String,
 }
 
 /// GET /api/info - Returns server info. `initialized` is true when Auth0 is configured (no registration gate).
@@ -28,6 +31,7 @@ pub async fn info(State(app): State<AppState>) -> Result<axum::Json<ApiServerInf
         location_name: settings.location_name,
         has_users,
         cameras_configured,
+        record_delete_after: settings.record_delete_after,
     }))
 }
 

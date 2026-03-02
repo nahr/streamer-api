@@ -19,8 +19,6 @@ import {
   InputLabel,
   Select,
   MenuItem,
-  Tabs,
-  Tab,
 } from '@mui/material'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import StopIcon from '@mui/icons-material/Stop'
@@ -30,8 +28,9 @@ import HistoryIcon from '@mui/icons-material/History'
 import DownloadIcon from '@mui/icons-material/Download'
 import { getCamera, getFacebookLiveUrl, getFacebookStatus, getRtmpStreamStatus, formatCameraType, startRtmpStream, stopRtmpStream } from '../api/cameras.js'
 import { getActiveMatch, createMatch, updateScore, endMatch, listMatches, downloadGameRecording } from '../api/poolMatches.js'
-import { formatTime, formatMatchTitle } from '../../../utils/format.js'
+import { formatTime, formatMatchTitle, isRecordingAvailable, formatRecordingFilename } from '../../../utils/format.js'
 import { useApiInfo } from '../../../apiInfoStore.jsx'
+import { useAuth } from '../../../authStore.jsx'
 import { getToken, urlWithToken } from '../../../apiClient.js'
 import { LiveTimestamp } from '../../../components/LiveTimestamp.jsx'
 import { StreamPreview } from '../components/StreamPreview.jsx'
@@ -40,7 +39,8 @@ import { MatchScoreControls } from '../components/MatchScoreControls.jsx'
 export function Camera() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { locationName } = useApiInfo()
+  const { locationName, recordDeleteAfter } = useApiInfo()
+  const { user } = useAuth()
   const [searchParams, setSearchParams] = useSearchParams()
   const [camera, setCamera] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -80,6 +80,8 @@ export function Camera() {
   const [previewLoaded, setPreviewLoaded] = useState(false)
   const [cameraMatches, setCameraMatches] = useState([])
   const [downloadingGame, setDownloadingGame] = useState(null)
+  const [downloadingRecent, setDownloadingRecent] = useState(null)
+  const [startPracticeLoading, setStartPracticeLoading] = useState(false)
 
   useEffect(() => {
     if (!camera?.id) return
@@ -188,6 +190,28 @@ export function Camera() {
     check()
     return () => { cancelled = true }
   }, [])
+
+  const handleStartPractice = async () => {
+    if (!camera?.id || !user) return
+    const playerName = (user.name || user.email || 'Player').trim()
+    if (!playerName) return
+    setStartPracticeLoading(true)
+    setStartError('')
+    try {
+      const { id: matchId } = await createMatch({
+        match_type: 'practice',
+        player_one: { name: playerName, race_to: 0 },
+        camera_id: camera.id,
+      })
+      await fetchActiveMatch()
+      fetchCameraMatches()
+      navigate(`/match/${matchId}`)
+    } catch (err) {
+      setStartError(err.message)
+    } finally {
+      setStartPracticeLoading(false)
+    }
+  }
 
   const handleStartMatch = async () => {
     const { matchType, playerOneName, playerTwoName, playerOneRaceTo, playerTwoRaceTo, practiceTargetRacks, playerOneRating, playerTwoRating, playerOneRatingType, playerTwoRatingType, matchDescription } = startForm
@@ -314,8 +338,8 @@ export function Camera() {
         const prefix = locationName ? `${locationName} - ${camera.name}` : camera.name
         const title = activeMatch
           ? (activeMatch.match_type === 'practice'
-              ? `${prefix}: Practice: ${activeMatch.player_one.name}`
-              : `${prefix}: ${activeMatch.player_one.name} vs ${activeMatch.player_two.name}`)
+            ? `${prefix}: Practice: ${activeMatch.player_one.name}`
+            : `${prefix}: ${activeMatch.player_one.name} vs ${activeMatch.player_two.name}`)
           : `${prefix} - Table TV`
         const formatRating = (p) => p.rating ? `${p.rating.type} ${p.rating.value}` : null
         const p1Part = activeMatch
@@ -470,10 +494,50 @@ export function Camera() {
               locationName={locationName}
               overlayMatch={activeMatch}
             />
+            <Box sx={{ mt: 2, display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+              <Typography variant="body2" color="text.secondary" sx={{ mr: 1 }}>
+                Download last:
+              </Typography>
+              {[30, 60, 90].map((sec) => {
+                const isDownloading = downloadingRecent === sec
+                return (
+                  <Button
+                    key={sec}
+                    size="small"
+                    variant="outlined"
+                    startIcon={<DownloadIcon />}
+                    disabled={isDownloading}
+                    onClick={async () => {
+                      setDownloadingRecent(sec)
+                      try {
+                        const startMs = Date.now() - sec * 1000
+                        await downloadGameRecording(
+                          camera.id,
+                          startMs,
+                          sec,
+                          `clip-${sec}s.mp4`
+                        )
+                      } catch (err) {
+                        console.error('Download failed', err)
+                      } finally {
+                        setDownloadingRecent(null)
+                      }
+                    }}
+                  >
+                    {isDownloading ? 'Downloading…' : `${sec}s`}
+                  </Button>
+                )
+              })}
+            </Box>
           </Box>
         )}
 
         <Box sx={{ mt: 3, pt: 2, borderTop: 1, borderColor: 'divider' }}>
+          {startError && !startDialogOpen && (
+            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setStartError('')}>
+              {startError}
+            </Alert>
+          )}
           <Box sx={{ mb: 2 }}>
             <Typography variant="h6">
               Pool Match
@@ -503,13 +567,23 @@ export function Camera() {
               />
             </Stack>
           ) : (
-            <Button
-              startIcon={<PlayArrowIcon />}
-              variant="contained"
-              onClick={() => setStartDialogOpen(true)}
-            >
-              Start match
-            </Button>
+            <Stack direction="row" spacing={2}>
+              <Button
+                startIcon={<PlayArrowIcon />}
+                variant="outlined"
+                onClick={handleStartPractice}
+                disabled={!user || startPracticeLoading}
+              >
+                {startPracticeLoading ? 'Starting…' : 'Start practice'}
+              </Button>
+              <Button
+                startIcon={<PlayArrowIcon />}
+                variant="contained"
+                onClick={() => setStartDialogOpen(true)}
+              >
+                Start match
+              </Button>
+            </Stack>
           )}
         </Box>
 
@@ -560,7 +634,7 @@ export function Camera() {
                               match.camera_id,
                               downloadStartMs,
                               durationSec,
-                              match.match_type === 'practice' ? `rack-${rackNumber}.mp4` : `game-${gameNumber}.mp4`
+                              formatRecordingFilename(startMs, match.match_type, match.match_type === 'practice' ? rackNumber : gameNumber)
                             )
                           } catch (err) {
                             console.error('Download failed', err)
@@ -589,7 +663,7 @@ export function Camera() {
                                 ? `Rack ${rackNumber}`
                                 : `${player} won game ${gameNumber}, ${entry.player_one_games_won} – ${entry.player_two_games_won}`}
                             </Typography>
-                            {match.camera_id && (
+                            {match.camera_id && isRecordingAvailable(entry.timestamp, recordDeleteAfter) && (
                               <Button
                                 size="small"
                                 startIcon={<DownloadIcon />}
@@ -620,105 +694,100 @@ export function Camera() {
             </Box>
           ) : (
             <>
-          {rtmpActive && (
-            <Alert severity="info" sx={{ mb: 2 }}>
-              Stream is live. Click &quot;Stop stream&quot; below to end the broadcast.
-            </Alert>
-          )}
-          {rtmpError && (
-            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setRtmpError('')}>
-              {rtmpError}
-            </Alert>
-          )}
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-            Push the stream to YouTube Live, Facebook, or other RTMP destinations.
-            The match overlay (player names, ratings, score) is burned into the stream.
-          </Typography>
-          {facebookConfigured && (
-            <>
-              <FormControl fullWidth sx={{ mb: 2 }} disabled={rtmpStarting}>
-                <InputLabel>Privacy</InputLabel>
-                <Select
-                  value={goLivePrivacy}
-                  label="Privacy"
-                  onChange={(e) => {
-                  const v = e.target.value
-                  setGoLivePrivacy(v)
-                  localStorage.setItem('table-tv-go-live-privacy', v)
-                }}
-                >
-                  <MenuItem value="EVERYONE">Public</MenuItem>
-                  <MenuItem value="ALL_FRIENDS">Friends</MenuItem>
-                  <MenuItem value="FRIENDS_OF_FRIENDS">Friends of friends</MenuItem>
-                  <MenuItem value="SELF">Only me</MenuItem>
-                </Select>
-              </FormControl>
-              <Button
-                variant="outlined"
-                fullWidth
-                sx={{ mb: 1 }}
-                onClick={handleGoLiveFacebook}
-                disabled={rtmpStarting}
-              >
-                {rtmpStarting ? 'Starting…' : 'Go Live with Facebook'}
-              </Button>
-              <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 2 }}>
-                You&apos;ll sign in with Facebook; the stream will appear on your profile.
+              {rtmpActive && (
+                <Alert severity="info" sx={{ mb: 2 }}>
+                  Stream is live. Click &quot;Stop stream&quot; below to end the broadcast.
+                </Alert>
+              )}
+              {rtmpError && (
+                <Alert severity="error" sx={{ mb: 2 }} onClose={() => setRtmpError('')}>
+                  {rtmpError}
+                </Alert>
+              )}
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+                Push the stream to YouTube Live, Facebook, or other RTMP destinations.
+                The match overlay (player names, ratings, score) is burned into the stream.
               </Typography>
-            </>
-          )}
-          <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-            Or enter RTMP URL manually:
-          </Typography>
-          <TextField
-            label="RTMP URL"
-            placeholder="e.g. rtmp://a.rtmp.youtube.com/live2/xxxx"
-            value={rtmpUrl}
-            onChange={(e) => setRtmpUrl(e.target.value)}
-            fullWidth
-            error={!!rtmpError}
-            helperText={rtmpError}
-            disabled={rtmpStarting}
-          />
+              {facebookConfigured && (
+                <>
+                  <FormControl fullWidth sx={{ mb: 2 }} disabled={rtmpStarting}>
+                    <InputLabel>Privacy</InputLabel>
+                    <Select
+                      value={goLivePrivacy}
+                      label="Privacy"
+                      onChange={(e) => {
+                        const v = e.target.value
+                        setGoLivePrivacy(v)
+                        localStorage.setItem('table-tv-go-live-privacy', v)
+                      }}
+                    >
+                      <MenuItem value="EVERYONE">Public</MenuItem>
+                      <MenuItem value="ALL_FRIENDS">Friends</MenuItem>
+                      <MenuItem value="FRIENDS_OF_FRIENDS">Friends of friends</MenuItem>
+                      <MenuItem value="SELF">Only me</MenuItem>
+                    </Select>
+                  </FormControl>
+                  <Button
+                    variant="outlined"
+                    fullWidth
+                    sx={{ mb: 1 }}
+                    onClick={handleGoLiveFacebook}
+                    disabled={rtmpStarting}
+                  >
+                    {rtmpStarting ? 'Starting…' : 'Go Live with Facebook'}
+                  </Button>
+                  <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 2 }}>
+                    You&apos;ll sign in with Facebook; the stream will appear on your profile.
+                  </Typography>
+                </>
+              )}
+              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
+                Or enter RTMP URL manually:
+              </Typography>
+              <TextField
+                label="RTMP URL"
+                placeholder="e.g. rtmp://a.rtmp.youtube.com/live2/xxxx"
+                value={rtmpUrl}
+                onChange={(e) => setRtmpUrl(e.target.value)}
+                fullWidth
+                error={!!rtmpError}
+                helperText={rtmpError}
+                disabled={rtmpStarting}
+              />
             </>
           )}
         </DialogContent>
         {!(rtmpStarting && isFacebookLiveFlow) && (
-        <DialogActions>
-          <Button onClick={() => setRtmpDialogOpen(false)}>Cancel</Button>
-          {rtmpActive && (
-            <Button
-              variant="outlined"
-              color="error"
-              onClick={handleStopRtmp}
-              disabled={rtmpStopping}
-            >
-              {rtmpStopping ? 'Stopping…' : 'Stop stream'}
+          <DialogActions>
+            <Button onClick={() => setRtmpDialogOpen(false)}>Cancel</Button>
+            {rtmpActive && (
+              <Button
+                variant="outlined"
+                color="error"
+                onClick={handleStopRtmp}
+                disabled={rtmpStopping}
+              >
+                {rtmpStopping ? 'Stopping…' : 'Stop stream'}
+              </Button>
+            )}
+            <Button variant="contained" onClick={handleStartRtmp} disabled={rtmpStarting || rtmpActive}>
+              {rtmpStarting ? 'Starting…' : 'Start stream'}
             </Button>
-          )}
-          <Button variant="contained" onClick={handleStartRtmp} disabled={rtmpStarting || rtmpActive}>
-            {rtmpStarting ? 'Starting…' : 'Start stream'}
-          </Button>
-        </DialogActions>
+          </DialogActions>
         )}
       </Dialog>
 
       <Dialog open={startDialogOpen} onClose={() => setStartDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Start pool match</DialogTitle>
         <DialogContent>
-          <Tabs
-            value={startForm.matchType}
-            onChange={(_, v) => setStartForm((f) => ({ ...f, matchType: v }))}
-            sx={{ mb: 2, mt: 0.5 }}
-          >
-            <Tab label="Match" value="standard" />
-            <Tab label="Practice" value="practice" />
-          </Tabs>
+          {startError && (
+            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setStartError('')}>
+              {startError}
+            </Alert>
+          )}
           <Stack direction="row" spacing={3} sx={{ mt: 1 }}>
             <Stack spacing={2} sx={{ flex: 1 }}>
-              <Typography variant="subtitle2" color="text.secondary">
-                {startForm.matchType === 'practice' ? 'Player' : 'Player 1'}
-              </Typography>
+              <Typography variant="subtitle2" color="text.secondary">Player 1</Typography>
               <TextField
                 label="Name"
                 value={startForm.playerOneName}
@@ -726,53 +795,37 @@ export function Camera() {
                 fullWidth
                 autoFocus
               />
-              {startForm.matchType === 'standard' && (
-                <>
-                  <FormControl fullWidth>
-                    <InputLabel>Rating type</InputLabel>
-                    <Select
-                      value={startForm.playerOneRatingType}
-                      label="Rating type"
-                      onChange={(e) => setStartForm((f) => ({ ...f, playerOneRatingType: e.target.value }))}
-                    >
-                      <MenuItem value="Fargo">Fargo</MenuItem>
-                      <MenuItem value="Apa">APA</MenuItem>
-                    </Select>
-                  </FormControl>
-                  <TextField
-                    label="Rating (optional)"
-                    placeholder={startForm.playerOneRatingType === 'Fargo' ? 'e.g. 650' : 'e.g. 5'}
-                    type="number"
-                    value={startForm.playerOneRating}
-                    onChange={(e) => setStartForm((f) => ({ ...f, playerOneRating: e.target.value }))}
-                    inputProps={{ min: 0, max: startForm.playerOneRatingType === 'Apa' ? 9 : undefined }}
-                    fullWidth
-                  />
-                  <TextField
-                    label="Race to"
-                    type="number"
-                    value={startForm.playerOneRaceTo}
-                    onChange={(e) => setStartForm((f) => ({ ...f, playerOneRaceTo: parseInt(e.target.value, 10) || 5 }))}
-                    inputProps={{ min: 1, max: 21 }}
-                    fullWidth
-                  />
-                </>
-              )}
-              {startForm.matchType === 'practice' && (
-                <TextField
-                  label="Target racks (0 = no limit)"
-                  type="number"
-                  value={startForm.practiceTargetRacks}
-                  onChange={(e) => setStartForm((f) => ({ ...f, practiceTargetRacks: parseInt(e.target.value, 10) || 0 }))}
-                  inputProps={{ min: 0, max: 21 }}
-                  fullWidth
-                  helperText="Optional. Leave 0 to track racks without a target."
-                />
-              )}
+              <FormControl fullWidth>
+                <InputLabel>Rating type</InputLabel>
+                <Select
+                  value={startForm.playerOneRatingType}
+                  label="Rating type"
+                  onChange={(e) => setStartForm((f) => ({ ...f, playerOneRatingType: e.target.value }))}
+                >
+                  <MenuItem value="Fargo">Fargo</MenuItem>
+                  <MenuItem value="Apa">APA</MenuItem>
+                </Select>
+              </FormControl>
+              <TextField
+                label="Rating (optional)"
+                placeholder={startForm.playerOneRatingType === 'Fargo' ? 'e.g. 650' : 'e.g. 5'}
+                type="number"
+                value={startForm.playerOneRating}
+                onChange={(e) => setStartForm((f) => ({ ...f, playerOneRating: e.target.value }))}
+                inputProps={{ min: 0, max: startForm.playerOneRatingType === 'Apa' ? 9 : undefined }}
+                fullWidth
+              />
+              <TextField
+                label="Race to"
+                type="number"
+                value={startForm.playerOneRaceTo}
+                onChange={(e) => setStartForm((f) => ({ ...f, playerOneRaceTo: parseInt(e.target.value, 10) || 5 }))}
+                inputProps={{ min: 1, max: 21 }}
+                fullWidth
+              />
             </Stack>
-            {startForm.matchType === 'standard' && (
-              <Stack spacing={2} sx={{ flex: 1 }}>
-                <Typography variant="subtitle2" color="text.secondary">Player 2</Typography>
+            <Stack spacing={2} sx={{ flex: 1 }}>
+              <Typography variant="subtitle2" color="text.secondary">Player 2</Typography>
                 <TextField
                   label="Name"
                   value={startForm.playerTwoName}
@@ -808,7 +861,6 @@ export function Camera() {
                   fullWidth
                 />
               </Stack>
-            )}
           </Stack>
           <TextField
             label="Match description (optional)"
@@ -820,11 +872,6 @@ export function Camera() {
             minRows={3}
             sx={{ mt: 2 }}
           />
-          {startError && (
-            <Typography color="error" variant="body2" sx={{ mt: 2 }}>
-              {startError}
-            </Typography>
-          )}
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setStartDialogOpen(false)}>Cancel</Button>
