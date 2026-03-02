@@ -156,7 +156,38 @@ paths:
 
 ## RTMP streaming (Go Live)
 
-RTMP export (YouTube, Facebook, etc.) uses **ffmpeg** to read the MJPEG stream and push to RTMP. Works for RTSP cameras. The API requires ffmpeg to be installed and in `PATH`.
+RTMP export (YouTube, Facebook, etc.) uses **ffmpeg** to read the RTSP stream and push to RTMP. Works for RTSP cameras. The API requires ffmpeg to be installed and in `PATH`.
 
 - **macOS:** `brew install ffmpeg`
 - **Ubuntu/Debian:** `sudo apt install ffmpeg`
+
+### Facebook Live "Input/output error" – stunnel workaround
+
+FFmpeg's native RTMPS support often fails when streaming to Facebook Live. Use **stunnel** as a relay:
+
+1. **Install stunnel**
+   - macOS: `brew install stunnel`
+   - Ubuntu/Debian: `sudo apt install stunnel4`
+
+2. **Create stunnel config** (e.g. `stunnel-fb.conf`):
+   ```
+   [fb-live]
+   client = yes
+   accept = 127.0.0.1:19350
+   connect = live-api-s.facebook.com:443
+   verifyChain = no
+   ```
+
+3. **Run stunnel** before going live:
+   ```bash
+   stunnel stunnel-fb.conf
+   ```
+
+4. **Set env and start the API:**
+   ```bash
+   USE_STUNNEL_FOR_RTMPS=1 cargo run
+   ```
+
+   The API will send the stream to `rtmp://127.0.0.1:19350`, and stunnel will forward it over TLS to Facebook.
+
+**Docker:** stunnel is included in the image. Add `USE_STUNNEL_FOR_RTMPS=1` to your `.env` and run `docker compose up`. The entrypoint starts stunnel automatically when that env var is set.

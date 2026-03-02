@@ -45,7 +45,7 @@ RUN cargo build --release
 # Build targets: ui-builder | api-deps | api-builder | table-tv (default)
 # =============================================================================
 FROM debian:bookworm-slim AS table-tv
-RUN apt-get update && apt-get install -y ca-certificates p11-kit avahi-daemon avahi-utils dumb-init ffmpeg nginx curl fonts-dejavu-core \
+RUN apt-get update && apt-get install -y ca-certificates p11-kit avahi-daemon avahi-utils dumb-init ffmpeg nginx curl fonts-dejavu-core stunnel \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
@@ -64,6 +64,7 @@ RUN echo "[server]\nhost-name=table-tv\nenable-dbus=no\n" > /etc/avahi/avahi-dae
 
 COPY docker/entrypoint.sh /app/entrypoint.sh
 COPY docker/nginx.conf /etc/nginx/sites-enabled/default
+COPY stunnel-fb.conf /app/stunnel-fb.conf
 RUN chmod +x /app/entrypoint.sh
 
 # API listens on 8080 (internal only). Nginx serves UI on 80 and proxies /api to 8080.

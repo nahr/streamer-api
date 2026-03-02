@@ -4,6 +4,8 @@ services:
       context: .
       dockerfile: Dockerfile
       target: table-tv
+    environment:
+      - USE_STUNNEL_FOR_RTMPS=${USE_STUNNEL_FOR_RTMPS:-}
     ports:
       - "80:80"
     hostname: table-tv

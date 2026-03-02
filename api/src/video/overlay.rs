@@ -166,9 +166,11 @@ fn overlay_tmp_path(path: &std::path::Path) -> std::path::PathBuf {
 }
 
 /// Render overlay PNG (match bar only) and write to path.
+/// Uses opaque black background (not transparent) so FFmpeg's yuv420p conversion doesn't
+/// produce green artifacts when vstacking with the video.
 pub fn render_overlay_png(path: &std::path::Path, overlay: Option<&MatchOverlay>) {
     if let Some(font) = load_font() {
-        let mut img = RgbaImage::from_pixel(OVERLAY_WIDTH, OVERLAY_HEIGHT, Rgba([0, 0, 0, 0]));
+        let mut img = RgbaImage::from_pixel(OVERLAY_WIDTH, OVERLAY_HEIGHT, Rgba([0, 0, 0, 255]));
         if let Some(o) = overlay {
             draw_match_to_rgba(&mut img, o, &font);
         }

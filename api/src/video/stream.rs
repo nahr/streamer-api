@@ -140,20 +140,19 @@ pub async fn camera_stream_rtmp_start(
     let location_name = settings.location_name.as_str();
     let camera_name = camera.name.as_str();
 
-    let port = std::env::var("PORT").unwrap_or_else(|_| "8080".to_string());
-    let stream_url = format!(
-        "http://127.0.0.1:{}/api/cameras/{}/stream?stream_token={}",
-        port,
-        id,
-        urlencoding::encode(&app.stream_token)
-    );
+    let rtsp_url = camera
+        .camera_type
+        .rtsp_url()
+        .filter(|u| !u.trim().is_empty())
+        .ok_or_else(|| ApiError::BadRequest("RTSP URL not configured for this camera.".to_string()))?;
+
     let overlay_path = overlay::overlay_path_for_camera(&camera.name);
     let (stop_tx, stop_rx) = std::sync::mpsc::channel();
     let rtmp = app.rtmp_processes.clone();
     let id_clone = id.clone();
 
     match rtmp::spawn_rtmp_pipeline(
-        &stream_url,
+        rtsp_url,
         &req.url,
         stop_rx,
         rtmp.clone(),

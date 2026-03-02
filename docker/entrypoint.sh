@@ -9,6 +9,11 @@ fi
 # Start Avahi for mDNS (table-tv.local) - may fail in bridge network, that's ok
 avahi-daemon --no-drop-root --no-rlimits 2>/dev/null || true &
 
+# Start stunnel for Facebook RTMPS when USE_STUNNEL_FOR_RTMPS=1 (avoids FFmpeg RTMPS I/O errors)
+if [ "$USE_STUNNEL_FOR_RTMPS" = "1" ]; then
+  stunnel /app/stunnel-fb.conf &
+fi
+
 # API on 8080 (internal only - nginx proxies /api to it)
 cd /app && /app/server &
 # Wait for API to be ready (max 15s)

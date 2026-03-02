@@ -50,7 +50,11 @@ export function Match() {
   const [rtmpActive, setRtmpActive] = useState(false)
   const [rtmpStopping, setRtmpStopping] = useState(false)
   const [facebookConfigured, setFacebookConfigured] = useState(false)
-  const [goLivePrivacy, setGoLivePrivacy] = useState('EVERYONE')
+  const [goLivePrivacy, setGoLivePrivacy] = useState(() => {
+    const saved = localStorage.getItem('table-tv-go-live-privacy')
+    return ['EVERYONE', 'ALL_FRIENDS', 'FRIENDS_OF_FRIENDS', 'SELF'].includes(saved) ? saved : 'EVERYONE'
+  })
+  const [isFacebookLiveFlow, setIsFacebookLiveFlow] = useState(false)
   const [streamUrl, setStreamUrl] = useState('')
   const [streamError, setStreamError] = useState(false)
   const [previewLoaded, setPreviewLoaded] = useState(false)
@@ -94,6 +98,11 @@ export function Match() {
 
   useEffect(() => {
     if (!camera?.id) return
+    if (rtmpActive) {
+      setStreamUrl('')
+      setPreviewLoaded(false)
+      return
+    }
     setStreamError(false)
     setStreamUrl('')
     setPreviewLoaded(false)
@@ -104,7 +113,7 @@ export function Match() {
       }
     })
     return () => { cancelled = true }
-  }, [camera?.id])
+  }, [camera?.id, rtmpActive])
 
   const fetchRtmpStatus = useCallback(async () => {
     if (!camera?.id) return
@@ -216,6 +225,7 @@ export function Match() {
         setRtmpError(err.message)
       } finally {
         setRtmpStarting(false)
+        setIsFacebookLiveFlow(false)
       }
     },
     [camera?.id, camera?.name, match, locationName]
@@ -225,6 +235,7 @@ export function Match() {
     const authKey = searchParams.get('auth_key')
     if (!authKey || !id || !camera?.id || !match) return
     setSearchParams({}, { replace: true })
+    setIsFacebookLiveFlow(true)
     setRtmpDialogOpen(true)
     runFacebookLiveWithAuthKey(authKey)
   }, [searchParams, id, camera?.id, match, setSearchParams, runFacebookLiveWithAuthKey])
@@ -454,6 +465,12 @@ export function Match() {
       <Dialog open={rtmpDialogOpen} onClose={() => setRtmpDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Go Live</DialogTitle>
         <DialogContent>
+          {rtmpStarting && isFacebookLiveFlow ? (
+            <Box display="flex" justifyContent="center" alignItems="center" py={4}>
+              <CircularProgress />
+            </Box>
+          ) : (
+            <>
           {rtmpActive && (
             <Alert severity="info" sx={{ mb: 2 }}>
               Stream is live. Click &quot;Stop stream&quot; below to end the broadcast.
@@ -475,7 +492,11 @@ export function Match() {
                 <Select
                   value={goLivePrivacy}
                   label="Privacy"
-                  onChange={(e) => setGoLivePrivacy(e.target.value)}
+                  onChange={(e) => {
+                  const v = e.target.value
+                  setGoLivePrivacy(v)
+                  localStorage.setItem('table-tv-go-live-privacy', v)
+                }}
                 >
                   <MenuItem value="EVERYONE">Public</MenuItem>
                   <MenuItem value="ALL_FRIENDS">Friends</MenuItem>
@@ -510,7 +531,10 @@ export function Match() {
             helperText={rtmpError}
             disabled={rtmpStarting}
           />
+            </>
+          )}
         </DialogContent>
+        {!(rtmpStarting && isFacebookLiveFlow) && (
         <DialogActions>
           <Button onClick={() => setRtmpDialogOpen(false)}>Cancel</Button>
           {rtmpActive && (
@@ -527,6 +551,7 @@ export function Match() {
             {rtmpStarting ? 'Starting…' : 'Start stream'}
           </Button>
         </DialogActions>
+        )}
       </Dialog>
     </Box>
   )

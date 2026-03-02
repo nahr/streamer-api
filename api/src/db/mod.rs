@@ -78,6 +78,15 @@ impl Db {
             INSERT OR IGNORE INTO settings (id, location_name) VALUES ('system', '');
             ",
             )?;
+            // Migration: add score_history to pool_matches if missing (older DBs created before this column)
+            let has_score_history: bool = conn.query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('pool_matches') WHERE name='score_history'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )? > 0;
+            if !has_score_history {
+                conn.execute("ALTER TABLE pool_matches ADD COLUMN score_history TEXT NOT NULL DEFAULT '[]'", [])?;
+            }
             Ok(())
         })
     }

@@ -1,2 +1,5 @@
 .env
 mediamtx.yml
+.DS_Store
+*.mp4
+stunnel-fb.conf

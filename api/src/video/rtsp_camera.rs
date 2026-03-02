@@ -23,7 +23,7 @@ fn spawn_rtsp_ffmpeg(rtsp_url: &str) -> Option<(Child, broadcast::Sender<bytes::
     let child = Command::new("ffmpeg")
         .args([
             "-y",
-            "-rtsp_transport", "tcp",
+            "-rtsp_transport", "udp",
             "-i", rtsp_url,
             "-f", "mjpeg",
             "-q:v", "5",
