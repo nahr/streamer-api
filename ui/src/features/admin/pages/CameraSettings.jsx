@@ -79,6 +79,12 @@ export function CameraSettings() {
     fetchCameras()
   }, [])
 
+  // Refresh camera list periodically to update connection status
+  useEffect(() => {
+    const interval = setInterval(fetchCameras, 20000)
+    return () => clearInterval(interval)
+  }, [])
+
   const openAddDialog = () => {
     setEditingId(null)
     setForm({ name: '', url: '' })
@@ -170,13 +176,14 @@ export function CameraSettings() {
               <TableRow>
                 <TableCell>Name</TableCell>
                 <TableCell>Type</TableCell>
+                <TableCell>Status</TableCell>
                 <TableCell align="right">Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
               {cameras.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={3} align="center" sx={{ py: 4 }}>
+                  <TableCell colSpan={4} align="center" sx={{ py: 4 }}>
                     <Typography color="text.secondary">
                       No cameras configured. Click &quot;Add Camera&quot; to add one.
                     </Typography>
@@ -187,6 +194,17 @@ export function CameraSettings() {
                   <TableRow key={camera.id}>
                     <TableCell>{camera.name}</TableCell>
                     <TableCell>{formatCameraType(camera.camera_type)}</TableCell>
+                    <TableCell>
+                      {camera.connection_status != null ? (
+                        camera.connection_status ? (
+                          <Typography variant="body2" color="success.main">Connected</Typography>
+                        ) : (
+                          <Typography variant="body2" color="text.secondary">Offline</Typography>
+                        )
+                      ) : (
+                        <Typography variant="body2" color="text.secondary">—</Typography>
+                      )}
+                    </TableCell>
                     <TableCell align="right">
                       <IconButton
                         size="small"

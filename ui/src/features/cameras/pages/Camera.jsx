@@ -115,12 +115,22 @@ export function Camera() {
     }
   }, [camera?.id])
 
+  const fetchCamera = useCallback(async () => {
+    if (!id) return
+    setError('')
+    try {
+      const data = await getCamera(id)
+      setCamera(data)
+    } catch (err) {
+      setError(err.message)
+    }
+  }, [id])
+
   useEffect(() => {
     if (!id) return
     let cancelled = false
+    setLoading(true)
     async function fetch() {
-      setLoading(true)
-      setError('')
       try {
         const data = await getCamera(id)
         if (!cancelled) setCamera(data)
@@ -133,6 +143,13 @@ export function Camera() {
     fetch()
     return () => { cancelled = true }
   }, [id])
+
+  // Refresh camera periodically to update connection status
+  useEffect(() => {
+    if (!camera?.id) return
+    const interval = setInterval(fetchCamera, 20000)
+    return () => clearInterval(interval)
+  }, [camera?.id, fetchCamera])
 
   useEffect(() => {
     if (camera?.id) fetchActiveMatch()
@@ -449,6 +466,12 @@ export function Camera() {
             {locationName ? `${locationName} – ${camera.name}` : camera.name}
           </Typography>
           <Chip label={label} size="small" />
+          {camera.connection_status === true && (
+            <Chip label="Connected" color="success" size="small" />
+          )}
+          {camera.connection_status === false && (
+            <Chip label="Offline" size="small" variant="outlined" color="default" />
+          )}
         </Box>
         {detail && (
           <Typography color="text.secondary">
@@ -506,7 +529,7 @@ export function Camera() {
                     size="small"
                     variant="outlined"
                     startIcon={<DownloadIcon />}
-                    disabled={isDownloading}
+                    disabled={isDownloading || camera.connection_status === false}
                     onClick={async () => {
                       setDownloadingRecent(sec)
                       try {
@@ -533,6 +556,11 @@ export function Camera() {
         )}
 
         <Box sx={{ mt: 3, pt: 2, borderTop: 1, borderColor: 'divider' }}>
+          {camera.connection_status === false && (
+            <Alert severity="warning" sx={{ mb: 2 }}>
+              Camera is offline. Start practice, match, and downloads are disabled until the camera reconnects.
+            </Alert>
+          )}
           {startError && !startDialogOpen && (
             <Alert severity="error" sx={{ mb: 2 }} onClose={() => setStartError('')}>
               {startError}
@@ -572,7 +600,7 @@ export function Camera() {
                 startIcon={<PlayArrowIcon />}
                 variant="outlined"
                 onClick={handleStartPractice}
-                disabled={!user || startPracticeLoading}
+                disabled={!user || startPracticeLoading || camera.connection_status === false}
               >
                 {startPracticeLoading ? 'Starting…' : 'Start practice'}
               </Button>
@@ -580,6 +608,7 @@ export function Camera() {
                 startIcon={<PlayArrowIcon />}
                 variant="contained"
                 onClick={() => setStartDialogOpen(true)}
+                disabled={camera.connection_status === false}
               >
                 Start match
               </Button>
@@ -877,7 +906,11 @@ export function Camera() {
         </DialogContent>
         <DialogActions>
           <Button onClick={() => setStartDialogOpen(false)}>Cancel</Button>
-          <Button variant="contained" onClick={handleStartMatch}>
+          <Button
+            variant="contained"
+            onClick={handleStartMatch}
+            disabled={camera.connection_status === false}
+          >
             Start
           </Button>
         </DialogActions>

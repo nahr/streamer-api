@@ -231,6 +231,59 @@ pub async fn is_available() -> bool {
     client.get(&url).send().await.is_ok()
 }
 
+/// Path entry from MediaMTX /v3/paths/list.
+#[derive(serde::Deserialize)]
+struct PathItem {
+    name: Option<String>,
+    ready: Option<bool>,
+}
+
+/// Path list response from MediaMTX.
+#[derive(serde::Deserialize)]
+struct PathListResponse {
+    items: Option<Vec<PathItem>>,
+}
+
+/// Fetch camera connection status from MediaMTX. Returns map of camera_id -> ready.
+pub async fn fetch_camera_connection_status(
+) -> Result<std::collections::HashMap<String, bool>, ApiError> {
+    let base = mediamtx_api_base();
+    let url = format!("{}/v3/paths/list", base);
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()
+        .map_err(|e| ApiError::Unknown(e.to_string()))?;
+
+    let res = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| ApiError::Unknown(format!("MediaMTX paths list failed: {}", e)))?;
+
+    if !res.status().is_success() {
+        return Err(ApiError::Unknown(format!(
+            "MediaMTX paths list failed: {}",
+            res.status()
+        )));
+    }
+
+    let body: PathListResponse = res
+        .json()
+        .await
+        .map_err(|e| ApiError::Unknown(format!("MediaMTX paths list parse failed: {}", e)))?;
+
+    let mut status = std::collections::HashMap::new();
+    for item in body.items.unwrap_or_default() {
+        if let Some(name) = item.name {
+            if let Some(camera_id) = name.strip_prefix("camera/") {
+                status.insert(camera_id.to_string(), item.ready.unwrap_or(false));
+            }
+        }
+    }
+    Ok(status)
+}
+
 /// Sync all RTSP cameras to MediaMTX. Called on startup and when settings change.
 pub async fn sync_all_paths(db: &crate::db::Db) -> bool {
     if !is_available().await {

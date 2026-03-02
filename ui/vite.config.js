@@ -36,6 +36,9 @@ export default defineConfig(() => {
 
   return {
   envDir,
+  resolve: {
+    dedupe: ['react', 'react-dom'],
+  },
   // Don't expose AUTH0_* from process.env - we use define from .env file only (shell overrides break Auth0)
   envPrefix: ['VITE_'],
   define,

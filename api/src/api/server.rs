@@ -21,8 +21,8 @@ pub struct AppState {
     pub jwks: Option<Arc<auth::JwksCache>>,
     /// Token for server-side stream access (RTMP pipeline). Env STREAM_TOKEN or random at startup.
     pub stream_token: String,
-    /// MediaMTX is available and paths are synced. Stream/RTMP use MediaMTX URL when true.
-    pub mediamtx_available: Arc<RwLock<bool>>,
+    /// Per-camera connection status from MediaMTX (camera_id -> ready).
+    pub camera_connection_status: Arc<RwLock<std::collections::HashMap<String, bool>>>,
 }
 
 impl ApiServer {
@@ -56,30 +56,42 @@ impl ApiServer {
             format!("{:x}", hasher.finish())
         });
 
-        let mediamtx_available = Arc::new(RwLock::new(false));
-        let mediamtx_available_clone = mediamtx_available.clone();
+        let camera_connection_status = Arc::new(RwLock::new(std::collections::HashMap::new()));
+        let camera_connection_status_clone = camera_connection_status.clone();
         let db_for_sync = db.clone();
-        tokio::spawn(async move {
-            const MAX_RETRIES: u32 = 15;
-            const RETRY_DELAY_SECS: u64 = 2;
-            for attempt in 1..=MAX_RETRIES {
-                if crate::video::sync_all_paths(&db_for_sync).await {
-                    if let Ok(mut guard) = mediamtx_available_clone.write() {
-                        *guard = true;
-                        tracing::info!("MediaMTX paths synced, streams will use MediaMTX proxy");
+        // MediaMTX sync runs in background; only retries while sync is failing
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().expect("sync runtime");
+            rt.block_on(async {
+                const RETRY_DELAY_SECS: u64 = 10;
+                loop {
+                    match crate::video::sync_all_paths(&db_for_sync).await {
+                        true => {
+                            tracing::info!("MediaMTX paths synced");
+                            return;
+                        }
+                        false => {
+                            tracing::debug!("MediaMTX sync failed, retrying in {}s", RETRY_DELAY_SECS);
+                            tokio::time::sleep(tokio::time::Duration::from_secs(RETRY_DELAY_SECS)).await;
+                        }
                     }
-                    return;
                 }
-                if attempt < MAX_RETRIES {
-                    tracing::debug!(
-                        attempt,
-                        "MediaMTX not ready, retrying in {}s",
-                        RETRY_DELAY_SECS
-                    );
-                    tokio::time::sleep(tokio::time::Duration::from_secs(RETRY_DELAY_SECS)).await;
+            });
+        });
+        // Poll MediaMTX for camera connection status
+        std::thread::spawn(move || {
+            let rt = tokio::runtime::Runtime::new().expect("status runtime");
+            rt.block_on(async {
+                const POLL_INTERVAL_SECS: u64 = 15;
+                loop {
+                    if let Ok(status) = crate::video::fetch_camera_connection_status().await {
+                        if let Ok(mut guard) = camera_connection_status_clone.write() {
+                            *guard = status;
+                        }
+                    }
+                    tokio::time::sleep(tokio::time::Duration::from_secs(POLL_INTERVAL_SECS)).await;
                 }
-            }
-            tracing::info!("MediaMTX unavailable after {} attempts, using direct camera URLs", MAX_RETRIES);
+            });
         });
 
         let app_state = AppState {
@@ -89,7 +101,7 @@ impl ApiServer {
             rtmp_processes,
             jwks,
             stream_token,
-            mediamtx_available,
+            camera_connection_status,
         };
 
         let mut app = Router::new()

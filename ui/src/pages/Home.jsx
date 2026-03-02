@@ -28,27 +28,34 @@ export function Home() {
   const [loading, setLoading] = useState(true)
   const [matchesLoading, setMatchesLoading] = useState(true)
 
+  const fetchCameras = useCallback(async (showLoading = true) => {
+    if (!isLoggedIn) return
+    if (showLoading) setLoading(true)
+    try {
+      const data = await listCameras()
+      setCameras(data)
+    } catch {
+      setCameras([])
+    } finally {
+      if (showLoading) setLoading(false)
+    }
+  }, [isLoggedIn])
+
   useEffect(() => {
     if (!isLoggedIn) {
       setCameras([])
       setLoading(false)
       return
     }
-    setLoading(true)
-    let cancelled = false
-    async function fetch() {
-      try {
-        const data = await listCameras()
-        if (!cancelled) setCameras(data)
-      } catch {
-        if (!cancelled) setCameras([])
-      } finally {
-        if (!cancelled) setLoading(false)
-      }
-    }
-    fetch()
-    return () => { cancelled = true }
-  }, [isLoggedIn])
+    fetchCameras(true)
+  }, [isLoggedIn, fetchCameras])
+
+  // Refresh cameras periodically to update connection status (no loading spinner)
+  useEffect(() => {
+    if (!isLoggedIn) return
+    const interval = setInterval(() => fetchCameras(false), 20000)
+    return () => clearInterval(interval)
+  }, [isLoggedIn, fetchCameras])
 
   const fetchMatches = useCallback(async () => {
     setMatchesLoading(true)
@@ -168,6 +175,7 @@ export function Home() {
               <List disablePadding>
                 {cameras.map((camera) => {
                   const inUse = camerasInUse.has(camera.id)
+                  const offline = camera.connection_status === false
                   return (
                     <ListItemButton
                       key={camera.id}
@@ -184,6 +192,25 @@ export function Home() {
                                 label="in use"
                                 size="small"
                                 component="span"
+                                sx={{ ml: 1, verticalAlign: 'middle' }}
+                              />
+                            )}
+                            {offline && (
+                              <Chip
+                                label="offline"
+                                size="small"
+                                component="span"
+                                color="default"
+                                variant="outlined"
+                                sx={{ ml: 1, verticalAlign: 'middle' }}
+                              />
+                            )}
+                            {camera.connection_status === true && !inUse && (
+                              <Chip
+                                label="connected"
+                                size="small"
+                                component="span"
+                                color="success"
                                 sx={{ ml: 1, verticalAlign: 'middle' }}
                               />
                             )}

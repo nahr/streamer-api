@@ -20,8 +20,8 @@ pub use overlay::{
     update_overlay, MatchOverlay, OverlayPlayer, OverlayState,
 };
 pub use mediamtx::{
-    delete_camera_path, finish_recording_segment, is_available, mediamtx_rtsp_url, sync_all_paths,
-    sync_camera_path,
+    delete_camera_path, fetch_camera_connection_status, finish_recording_segment, is_available,
+    mediamtx_rtsp_url, sync_all_paths, sync_camera_path,
 };
 pub use rtmp::{rtmp_state_new, RtmpStartRequest, RtmpState};
 

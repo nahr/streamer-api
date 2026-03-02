@@ -41,12 +41,8 @@ pub async fn camera_stream(
                     "RTSP URL is not configured for this camera.".to_string(),
                 ));
             }
-            // Use MediaMTX proxy when available (single connection to camera, rolling recording)
-            let stream_url = if app.mediamtx_available.read().map(|g| *g).unwrap_or(false) {
-                video::mediamtx_rtsp_url(&id)
-            } else {
-                url.to_string()
-            };
+            // Always use MediaMTX proxy (single connection to camera, rolling recording)
+            let stream_url = video::mediamtx_rtsp_url(&id);
             let s = match rtsp_camera::get_or_start_rtsp_stream(&id, &stream_url) {
                 Some(s) => s,
                 None => {
@@ -146,19 +142,8 @@ pub async fn camera_stream_rtmp_start(
     let location_name = settings.location_name.as_str();
     let camera_name = camera.name.as_str();
 
-    let rtsp_url = {
-        let direct = camera
-            .camera_type
-            .rtsp_url()
-            .filter(|u| !u.trim().is_empty())
-            .ok_or_else(|| ApiError::BadRequest("RTSP URL not configured for this camera.".to_string()))?;
-        // Use MediaMTX proxy when available so FFmpeg doesn't overload the camera
-        if app.mediamtx_available.read().map(|g| *g).unwrap_or(false) {
-            video::mediamtx_rtsp_url(&id)
-        } else {
-            direct.to_string()
-        }
-    };
+    // Always use MediaMTX proxy so FFmpeg doesn't overload the camera
+    let rtsp_url = video::mediamtx_rtsp_url(&id);
 
     let overlay_path = overlay::overlay_path_for_camera(&camera.name);
     let (stop_tx, stop_rx) = std::sync::mpsc::channel();

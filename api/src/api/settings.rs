@@ -48,16 +48,11 @@ pub async fn put_settings(
     }
     app.db.set_settings(current.clone())?;
 
-    // Re-sync MediaMTX paths when record settings change
+    // Re-sync MediaMTX paths in background when record settings change
     if record_settings_changed {
         let db = app.db.clone();
-        let mediamtx_available = app.mediamtx_available.clone();
         tokio::spawn(async move {
-            if crate::video::sync_all_paths(&db).await {
-                if let Ok(mut guard) = mediamtx_available.write() {
-                    *guard = true;
-                }
-            }
+            let _ = crate::video::sync_all_paths(&db).await;
         });
     }
 

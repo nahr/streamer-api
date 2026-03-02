@@ -166,7 +166,7 @@ fn draw_match_to_rgba(img: &mut RgbaImage, overlay: &MatchOverlay, font: &FontRe
     }
 }
 
-/// Draw practice overlay: "Practice: Name | N racks"
+/// Draw practice overlay: "Practice: Name | Rack #N"
 fn draw_practice_to_rgba(img: &mut RgbaImage, overlay: &MatchOverlay, font: &FontRef) {
     let (w, h) = (img.width() as i32, img.height() as i32);
     let bar_rect = Rect::at(0, 0).of_size(w as u32, h as u32);
@@ -180,7 +180,7 @@ fn draw_practice_to_rgba(img: &mut RgbaImage, overlay: &MatchOverlay, font: &Fon
     let line_h = 24i32;
 
     let left_text = format!("Practice: {}", overlay.player_one.name);
-    let right_text = format!("{} racks", overlay.player_one.games_won);
+    let right_text = format!("Rack #{}", overlay.player_one.games_won);
     draw_text_mut(
         img,
         white,

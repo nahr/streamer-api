@@ -20,14 +20,25 @@ pub struct CameraResponse {
     pub id: String,
     pub name: String,
     pub camera_type: CameraType,
+    /// Whether the camera is connected and ready (from MediaMTX). None if not RTSP or status unknown.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub connection_status: Option<bool>,
 }
 
 impl CameraResponse {
-    fn from_doc(doc: crate::db::camera::CameraDoc) -> Option<Self> {
+    fn from_doc(
+        doc: crate::db::camera::CameraDoc,
+        connection_status: Option<bool>,
+    ) -> Option<Self> {
         doc.id.map(|id| Self {
             id,
             name: doc.name,
-            camera_type: doc.camera_type,
+            camera_type: doc.camera_type.clone(),
+            connection_status: if doc.camera_type.is_rtsp() {
+                Some(connection_status.unwrap_or(false))
+            } else {
+                None
+            },
         })
     }
 }
@@ -50,9 +61,17 @@ pub async fn cameras_list(
     State(app): State<AppState>,
 ) -> Result<Json<Vec<CameraResponse>>, ApiError> {
     let cameras = app.db.list_cameras()?;
+    let status = app
+        .camera_connection_status
+        .read()
+        .map(|g| (*g).clone())
+        .unwrap_or_default();
     let responses: Vec<CameraResponse> = cameras
         .into_iter()
-        .filter_map(CameraResponse::from_doc)
+        .filter_map(|doc| {
+            let conn = doc.id.as_ref().and_then(|id| status.get(id).copied());
+            CameraResponse::from_doc(doc, conn)
+        })
         .collect();
     Ok(Json(responses))
 }
@@ -69,7 +88,8 @@ pub async fn cameras_get(
     let camera = app.db
         .find_camera_by_id(&id)?
         .ok_or(ApiError::CameraNotFound)?;
-    CameraResponse::from_doc(camera).ok_or(ApiError::CameraNotFound).map(Json)
+    let conn = app.camera_connection_status.read().ok().and_then(|g| g.get(&id).copied());
+    CameraResponse::from_doc(camera, conn).ok_or(ApiError::CameraNotFound).map(Json)
 }
 
 /// POST /api/cameras - Create a new camera.
@@ -84,17 +104,14 @@ pub async fn cameras_create(
     let is_rtsp = req.camera_type.is_rtsp();
     let id = app.db.create_camera(req.name, req.camera_type)?;
     let id_clone = id.clone();
-    // Sync to MediaMTX if it's an RTSP camera
+    // Sync to MediaMTX in background if it's an RTSP camera (retries when camera is powered off)
     if is_rtsp {
         let db = app.db.clone();
-        let mediamtx_available = app.mediamtx_available.clone();
         tokio::spawn(async move {
             if let Ok(Some(camera)) = db.find_camera_by_id(&id_clone) {
                 let settings = db.get_settings().unwrap_or_default();
                 if let Err(e) = video::sync_camera_path(&camera, &settings).await {
                     tracing::warn!(camera_id = %id_clone, error = %e, "MediaMTX sync failed");
-                } else if let Ok(mut guard) = mediamtx_available.write() {
-                    *guard = true;
                 }
             }
         });
@@ -118,15 +135,12 @@ pub async fn cameras_update(
     app.db.update_camera(&id, req.name, req.camera_type.clone())?;
     if req.camera_type.is_rtsp() {
         let db = app.db.clone();
-        let mediamtx_available = app.mediamtx_available.clone();
         let id_clone = id.clone();
         tokio::spawn(async move {
             if let Ok(Some(camera)) = db.find_camera_by_id(&id_clone) {
                 let settings = db.get_settings().unwrap_or_default();
                 if let Err(e) = video::sync_camera_path(&camera, &settings).await {
                     tracing::warn!(camera_id = %id_clone, error = %e, "MediaMTX sync failed");
-                } else if let Ok(mut guard) = mediamtx_available.write() {
-                    *guard = true;
                 }
             }
         });
