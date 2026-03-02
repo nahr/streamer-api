@@ -32,7 +32,7 @@ import { getToken, urlWithToken } from '../../../apiClient.js'
 import { MatchDuration } from '../../../components/MatchDuration.jsx'
 import { StreamPreview } from '../components/StreamPreview.jsx'
 import { MatchScoreControls } from '../components/MatchScoreControls.jsx'
-import { formatTime, formatMatchWinner, formatMatchTitle, getMatchWinner, isRecordingAvailable, formatRecordingFilename } from '../../../utils/format.js'
+import { formatTime, formatDuration, formatMatchWinner, formatMatchTitle, getMatchWinner, isRecordingAvailable, formatRecordingFilename } from '../../../utils/format.js'
 
 export function Match() {
   const { id } = useParams()
@@ -460,8 +460,10 @@ export function Match() {
                       borderColor: 'divider',
                     }}
                   >
-                    <Typography variant="body2" color="text.secondary" sx={{ minWidth: 200 }}>
+                    <Typography variant="body2" color="text.secondary" sx={{ minWidth: 280 }}>
                       {formatTime(startMs, 'withSeconds')} – {formatTime(entry.timestamp, 'withSeconds')}
+                      {' · '}
+                      {formatDuration(entry.timestamp - startMs)}
                     </Typography>
                     <Typography variant="body1" fontWeight={600} sx={{ flex: 1 }}>
                       {match.match_type === 'practice'

@@ -28,7 +28,7 @@ import HistoryIcon from '@mui/icons-material/History'
 import DownloadIcon from '@mui/icons-material/Download'
 import { getCamera, getFacebookLiveUrl, getFacebookStatus, getRtmpStreamStatus, formatCameraType, startRtmpStream, stopRtmpStream } from '../api/cameras.js'
 import { getActiveMatch, createMatch, updateScore, endMatch, listMatches, downloadGameRecording } from '../api/poolMatches.js'
-import { formatTime, formatMatchTitle, isRecordingAvailable, formatRecordingFilename } from '../../../utils/format.js'
+import { formatTime, formatDuration, formatMatchTitle, isRecordingAvailable, formatRecordingFilename } from '../../../utils/format.js'
 import { useApiInfo } from '../../../apiInfoStore.jsx'
 import { useAuth } from '../../../authStore.jsx'
 import { getToken, urlWithToken } from '../../../apiClient.js'
@@ -655,8 +655,10 @@ export function Camera() {
                               borderColor: 'divider',
                             }}
                           >
-                            <Typography variant="body2" color="text.secondary" sx={{ minWidth: 200 }}>
+                            <Typography variant="body2" color="text.secondary" sx={{ minWidth: 280 }}>
                               {formatTime(startMs, 'withSeconds')} – {formatTime(entry.timestamp, 'withSeconds')}
+                              {' · '}
+                              {formatDuration(entry.timestamp - startMs)}
                             </Typography>
                             <Typography variant="body1" sx={{ flex: 1 }}>
                               {match.match_type === 'practice'
