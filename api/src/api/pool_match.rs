@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::api::auth::AuthenticatedUser;
 use crate::api::AppState;
-use crate::db::pool_match::{MatchPlayer, PoolMatch, PoolMatchDoc, Rating};
+use crate::db::pool_match::{MatchPlayer, MatchType, PoolMatch, PoolMatchDoc, Rating};
 use crate::error::ApiError;
 use crate::video;
 
@@ -16,7 +16,7 @@ fn valid_id(id: &str) -> bool {
     !id.is_empty() && id.len() <= 64 && id.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct RatingDto {
     #[serde(rename = "type")]
     pub rating_type: String,
@@ -100,6 +100,9 @@ pub struct PoolMatchResponse {
     /// History of score adjustments with timestamps, newest last.
     #[serde(default)]
     pub score_history: Vec<ScoreHistoryEntryDto>,
+    /// "standard" (two players) or "practice" (single player, racks count).
+    #[serde(default)]
+    pub match_type: String,
 }
 
 impl PoolMatchResponse {
@@ -115,6 +118,10 @@ impl PoolMatchResponse {
                 timestamp: e.timestamp.timestamp_millis(),
             })
             .collect();
+        let match_type = match doc.match_type {
+            MatchType::Practice => "practice",
+            MatchType::Standard => "standard",
+        };
         Some(Self {
             id: id.clone(),
             player_one: doc.player_one.into(),
@@ -126,6 +133,7 @@ impl PoolMatchResponse {
             started_by: doc.started_by_name,
             description: doc.description,
             score_history,
+            match_type: match_type.to_string(),
         })
     }
 }
@@ -140,10 +148,14 @@ pub struct MatchPlayerCreateDto {
 #[derive(Deserialize)]
 pub struct PoolMatchCreateRequest {
     pub player_one: MatchPlayerCreateDto,
-    pub player_two: MatchPlayerCreateDto,
+    /// Optional for practice matches (match_type=practice).
+    pub player_two: Option<MatchPlayerCreateDto>,
     pub camera_id: String,
     /// Optional match description (supports newlines), included in live video post.
     pub description: Option<String>,
+    /// "standard" (default) or "practice".
+    #[serde(default)]
+    pub match_type: String,
 }
 
 #[derive(Deserialize)]
@@ -229,11 +241,31 @@ pub async fn pool_matches_create(
     State(app): State<AppState>,
     Json(req): Json<PoolMatchCreateRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    if req.player_one.name.is_empty() || req.player_two.name.is_empty() {
+    let is_practice = req.match_type.eq_ignore_ascii_case("practice");
+
+    if req.player_one.name.trim().is_empty() {
+        return Err(ApiError::BadRequest("Player name is required".to_string()));
+    }
+    if !is_practice {
+        let p2 = req.player_two.as_ref().ok_or_else(|| {
+            ApiError::BadRequest("player_two is required for standard matches".to_string())
+        })?;
+        if p2.name.trim().is_empty() {
+            return Err(ApiError::BadRequest(
+                "Both player names are required for standard matches".to_string(),
+            ));
+        }
+        if req.player_one.race_to == 0 || p2.race_to == 0 {
+            return Err(ApiError::BadRequest(
+                "race_to must be greater than 0 for standard matches".to_string(),
+            ));
+        }
+    } else if req.player_one.race_to > 21 {
         return Err(ApiError::BadRequest(
-            "player names are required".to_string(),
+            "Target racks must be 0 (no limit) or 1–21".to_string(),
         ));
     }
+
     if !valid_id(&req.camera_id) {
         return Err(ApiError::BadRequest("Invalid camera_id".to_string()));
     }
@@ -241,23 +273,38 @@ pub async fn pool_matches_create(
         .db
         .find_camera_by_id(&req.camera_id)?
         .ok_or(ApiError::CameraNotFound)?;
-    if req.player_one.race_to == 0 || req.player_two.race_to == 0 {
-        return Err(ApiError::BadRequest(
-            "race_to must be greater than 0".to_string(),
-        ));
-    }
 
     let player_one = MatchPlayer {
-        name: req.player_one.name,
-        race_to: req.player_one.race_to,
+        name: req.player_one.name.trim().to_string(),
+        race_to: if is_practice {
+            req.player_one.race_to
+        } else {
+            req.player_one.race_to
+        },
         games_won: 0,
         rating: req.player_one.rating.map(|r| r.try_into()).transpose()?,
     };
-    let player_two = MatchPlayer {
-        name: req.player_two.name,
-        race_to: req.player_two.race_to,
-        games_won: 0,
-        rating: req.player_two.rating.map(|r| r.try_into()).transpose()?,
+    let player_two = if is_practice {
+        MatchPlayer {
+            name: "—".to_string(),
+            race_to: 0,
+            games_won: 0,
+            rating: None,
+        }
+    } else {
+        let p2 = req.player_two.as_ref().unwrap();
+        MatchPlayer {
+            name: p2.name.trim().to_string(),
+            race_to: p2.race_to,
+            games_won: 0,
+            rating: p2.rating.clone().map(|r| r.try_into()).transpose()?,
+        }
+    };
+
+    let match_type = if is_practice {
+        MatchType::Practice
+    } else {
+        MatchType::Standard
     };
 
     let match_data = PoolMatch {
@@ -269,6 +316,7 @@ pub async fn pool_matches_create(
         started_by_sub: Some(auth.sub),
         started_by_name: Some(auth.name),
         description: req.description.filter(|s| !s.trim().is_empty()),
+        match_type,
     };
 
     let id = app.db.create_pool_match(match_data)?;
@@ -305,6 +353,11 @@ pub async fn pool_matches_update_score(
             "Cannot update an ended match".to_string(),
         ));
     }
+    if doc.match_type == MatchType::Practice && req.player != 1 {
+        return Err(ApiError::BadRequest(
+            "Practice matches only track player 1 (racks)".to_string(),
+        ));
+    }
     let can_update = doc
         .started_by_sub
         .as_ref()
@@ -332,6 +385,7 @@ pub async fn pool_matches_update_score(
                 Some(video::MatchOverlay {
                     player_one: video::OverlayPlayer::from_match_player(&updated.player_one),
                     player_two: video::OverlayPlayer::from_match_player(&updated.player_two),
+                    is_practice: updated.match_type == MatchType::Practice,
                 }),
             );
         }

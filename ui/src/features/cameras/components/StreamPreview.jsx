@@ -177,70 +177,83 @@ export function StreamPreview({
                 borderRadius: '0 0 8px 8px',
                 display: 'flex',
                 alignItems: 'center',
-                justifyContent: 'space-between',
+                justifyContent: match.match_type === 'practice' ? 'flex-start' : 'space-between',
                 gap: 2,
               }}
             >
-              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', minWidth: 0, flex: 1 }}>
-                <Typography variant="subtitle2" fontWeight={600} noWrap sx={{ maxWidth: '100%' }}>
-                  {match.player_one.name}
-                </Typography>
-                {match.player_one.rating && (
-                  <Typography variant="caption" color="rgba(255,255,255,0.8)">
-                    {match.player_one.rating.type} {match.player_one.rating.value}
+              {match.match_type === 'practice' ? (
+                <>
+                  <Typography variant="subtitle2" fontWeight={600} noWrap sx={{ maxWidth: '100%' }}>
+                    Practice: {match.player_one.name}
                   </Typography>
-                )}
-              </Box>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexShrink: 0 }}>
-                <Box
-                  sx={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    minWidth: 32,
-                    height: 32,
-                    borderRadius: '50%',
-                    border: '2px solid #fff',
-                  }}
-                >
-                  <Typography variant="subtitle1" fontWeight={700}>
-                    {match.player_one.games_won}
+                  <Typography variant="subtitle1" fontWeight={700} sx={{ fontVariantNumeric: 'tabular-nums' }}>
+                    {match.player_one.games_won} rack{match.player_one.games_won !== 1 ? 's' : ''}
                   </Typography>
-                </Box>
-                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
-                  <Typography variant="caption" color="rgba(255,255,255,0.8)">
-                    race to
-                  </Typography>
-                  <Typography variant="caption" color="rgba(255,255,255,0.8)">
-                    {match.player_one.race_to}/{match.player_two.race_to}
-                  </Typography>
-                </Box>
-                <Box
-                  sx={{
-                    display: 'inline-flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    minWidth: 32,
-                    height: 32,
-                    borderRadius: '50%',
-                    border: '2px solid #fff',
-                  }}
-                >
-                  <Typography variant="subtitle1" fontWeight={700}>
-                    {match.player_two.games_won}
-                  </Typography>
-                </Box>
-              </Box>
-              <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', minWidth: 0, flex: 1 }}>
-                <Typography variant="subtitle2" fontWeight={600} noWrap sx={{ maxWidth: '100%' }}>
-                  {match.player_two.name}
-                </Typography>
-                {match.player_two.rating && (
-                  <Typography variant="caption" color="rgba(255,255,255,0.8)">
-                    {match.player_two.rating.type} {match.player_two.rating.value}
-                  </Typography>
-                )}
-              </Box>
+                </>
+              ) : (
+                <>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', minWidth: 0, flex: 1 }}>
+                    <Typography variant="subtitle2" fontWeight={600} noWrap sx={{ maxWidth: '100%' }}>
+                      {match.player_one.name}
+                    </Typography>
+                    {match.player_one.rating && (
+                      <Typography variant="caption" color="rgba(255,255,255,0.8)">
+                        {match.player_one.rating.type} {match.player_one.rating.value}
+                      </Typography>
+                    )}
+                  </Box>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexShrink: 0 }}>
+                    <Box
+                      sx={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        minWidth: 32,
+                        height: 32,
+                        borderRadius: '50%',
+                        border: '2px solid #fff',
+                      }}
+                    >
+                      <Typography variant="subtitle1" fontWeight={700}>
+                        {match.player_one.games_won}
+                      </Typography>
+                    </Box>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center' }}>
+                      <Typography variant="caption" color="rgba(255,255,255,0.8)">
+                        race to
+                      </Typography>
+                      <Typography variant="caption" color="rgba(255,255,255,0.8)">
+                        {match.player_one.race_to}/{match.player_two.race_to}
+                      </Typography>
+                    </Box>
+                    <Box
+                      sx={{
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        minWidth: 32,
+                        height: 32,
+                        borderRadius: '50%',
+                        border: '2px solid #fff',
+                      }}
+                    >
+                      <Typography variant="subtitle1" fontWeight={700}>
+                        {match.player_two.games_won}
+                      </Typography>
+                    </Box>
+                  </Box>
+                  <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', minWidth: 0, flex: 1 }}>
+                    <Typography variant="subtitle2" fontWeight={600} noWrap sx={{ maxWidth: '100%' }}>
+                      {match.player_two.name}
+                    </Typography>
+                    {match.player_two.rating && (
+                      <Typography variant="caption" color="rgba(255,255,255,0.8)">
+                        {match.player_two.rating.type} {match.player_two.rating.value}
+                      </Typography>
+                    )}
+                  </Box>
+                </>
+              )}
             </Box>
               )}
         </Box>

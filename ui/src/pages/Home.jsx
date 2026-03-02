@@ -17,7 +17,7 @@ import { useAuth } from '../authStore.jsx'
 import { listCameras, formatCameraType, parseCameraType } from '../features/cameras/api/cameras.js'
 import { listMatches } from '../features/cameras/api/poolMatches.js'
 import { MatchDuration } from '../components/MatchDuration.jsx'
-import { formatTime, getMatchWinner } from '../utils/format.js'
+import { formatTime, formatMatchTitle, getMatchWinner } from '../utils/format.js'
 
 export function Home() {
   const navigate = useNavigate()
@@ -100,7 +100,9 @@ export function Home() {
         <Paper variant="outlined" sx={{ mb: 3 }}>
           <List disablePadding>
             {matches.map((match) => {
-              const score = `${match.player_one.games_won} - ${match.player_two.games_won}`
+              const score = match.match_type === 'practice'
+                ? `${match.player_one.games_won} rack${match.player_one.games_won !== 1 ? 's' : ''}`
+                : `${match.player_one.games_won} - ${match.player_two.games_won}`
               const winner = getMatchWinner(match)
               const secondary = (
                 <>
@@ -133,7 +135,7 @@ export function Home() {
                   <ListItemText
                     primary={
                       <>
-                        {match.player_one.name} vs {match.player_two.name}
+                        {formatMatchTitle(match)}
                         <Typography component="span" variant="body1" sx={{ ml: 1, fontWeight: 600 }}>
                           {score}
                         </Typography>

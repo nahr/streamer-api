@@ -7,7 +7,7 @@ use imageproc::drawing::{draw_filled_circle_mut, draw_filled_rect_mut, draw_text
 use imageproc::rect::Rect;
 use std::sync::{Arc, RwLock};
 
-use crate::db::pool_match::{MatchPlayer, Rating};
+use crate::db::pool_match::{MatchPlayer, MatchType, Rating};
 use crate::db::Db;
 use crate::video::rtmp;
 
@@ -46,6 +46,7 @@ pub fn overlay_path_for_camera(camera_name: &str) -> std::path::PathBuf {
 pub struct MatchOverlay {
     pub player_one: OverlayPlayer,
     pub player_two: OverlayPlayer,
+    pub is_practice: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -81,6 +82,10 @@ fn load_font() -> Option<FontRef<'static>> {
 
 /// Draw match overlay in the 80px bar.
 fn draw_match_to_rgba(img: &mut RgbaImage, overlay: &MatchOverlay, font: &FontRef) {
+    if overlay.is_practice {
+        draw_practice_to_rgba(img, overlay, font);
+        return;
+    }
     let (w, h) = (img.width() as i32, img.height() as i32);
     let bar_rect = Rect::at(0, 0).of_size(w as u32, h as u32);
     draw_filled_rect_mut(img, bar_rect, Rgba([0u8, 0, 0, 230]));
@@ -159,6 +164,42 @@ fn draw_match_to_rgba(img: &mut RgbaImage, overlay: &MatchOverlay, font: &FontRe
     if let Some(ref r) = overlay.player_two.rating {
         draw_text_mut(img, gray, p2_x, p1_rating_y, ab_glyph::PxScale::from(scale_sm), font, r);
     }
+}
+
+/// Draw practice overlay: "Practice: Name | N racks"
+fn draw_practice_to_rgba(img: &mut RgbaImage, overlay: &MatchOverlay, font: &FontRef) {
+    let (w, h) = (img.width() as i32, img.height() as i32);
+    let bar_rect = Rect::at(0, 0).of_size(w as u32, h as u32);
+    draw_filled_rect_mut(img, bar_rect, Rgba([0u8, 0, 0, 230]));
+
+    let scale = 20.0f32;
+    let white = Rgba([255u8, 255, 255, 255]);
+    let gray = Rgba([204u8, 204, 204, 255]);
+    let px = 16i32;
+    let center_y = h / 2;
+    let line_h = 24i32;
+
+    let left_text = format!("Practice: {}", overlay.player_one.name);
+    let right_text = format!("{} racks", overlay.player_one.games_won);
+    draw_text_mut(
+        img,
+        white,
+        px,
+        center_y - line_h / 2,
+        ab_glyph::PxScale::from(scale),
+        font,
+        &left_text,
+    );
+    let (right_w, _) = imageproc::drawing::text_size(ab_glyph::PxScale::from(scale), font, &right_text);
+    draw_text_mut(
+        img,
+        white,
+        (w - right_w as i32 - px).max(px),
+        center_y - line_h / 2,
+        ab_glyph::PxScale::from(scale),
+        font,
+        &right_text,
+    );
 }
 
 fn overlay_tmp_path(path: &std::path::Path) -> std::path::PathBuf {
@@ -266,6 +307,7 @@ pub fn update_overlay(
             .map(|m| MatchOverlay {
                 player_one: OverlayPlayer::from_match_player(&m.player_one),
                 player_two: OverlayPlayer::from_match_player(&m.player_two),
+                is_practice: m.match_type == MatchType::Practice,
             })
     });
 

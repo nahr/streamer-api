@@ -52,11 +52,13 @@ export function formatDuration(ms, options = {}) {
 
 /**
  * Get the winner of a completed match, or null if none/ongoing.
- * @param {{ end_time?: number, player_one: { games_won: number, race_to: number, name: string }, player_two: { games_won: number, race_to: number, name: string } }} match
+ * Practice matches have no winner.
+ * @param {{ end_time?: number, match_type?: string, player_one: { games_won: number, race_to: number, name: string }, player_two: { games_won: number, race_to: number, name: string } }} match
  * @returns {string|null}
  */
 export function getMatchWinner(match) {
   if (!match.end_time) return null
+  if (match?.match_type === 'practice') return null
   if (match.player_one.games_won >= match.player_one.race_to) return match.player_one.name
   if (match.player_two.games_won >= match.player_two.race_to) return match.player_two.name
   return null
@@ -70,4 +72,17 @@ export function getMatchWinner(match) {
 export function formatMatchWinner(match) {
   const winner = getMatchWinner(match)
   return winner ? `${winner} won` : 'Ended early'
+}
+
+/**
+ * Format match title for display: "X vs Y" or "Practice: X | N racks".
+ * @param {{ match_type?: string, player_one: { name: string, games_won: number }, player_two: { name: string } }} match
+ * @returns {string}
+ */
+export function formatMatchTitle(match) {
+  if (match?.match_type === 'practice') {
+    const racks = match.player_one.games_won
+    return `Practice: ${match.player_one.name}${racks > 0 ? ` | ${racks} rack${racks !== 1 ? 's' : ''}` : ''}`
+  }
+  return `${match.player_one.name} vs ${match.player_two.name}`
 }

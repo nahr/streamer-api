@@ -32,7 +32,7 @@ import { getToken, urlWithToken } from '../../../apiClient.js'
 import { MatchDuration } from '../../../components/MatchDuration.jsx'
 import { StreamPreview } from '../components/StreamPreview.jsx'
 import { MatchScoreControls } from '../components/MatchScoreControls.jsx'
-import { formatTime, formatMatchWinner, getMatchWinner } from '../../../utils/format.js'
+import { formatTime, formatMatchWinner, formatMatchTitle, getMatchWinner } from '../../../utils/format.js'
 
 export function Match() {
   const { id } = useParams()
@@ -150,8 +150,11 @@ export function Match() {
 
   const handleScoreChange = async (player, delta) => {
     if (!match || scoreUpdating || match.end_time) return
+    const isPractice = match.match_type === 'practice'
     const p = player === 1 ? match.player_one : match.player_two
-    const next = Math.max(0, Math.min(p.race_to, p.games_won + delta))
+    const next = isPractice && p.race_to === 0
+      ? Math.max(0, p.games_won + delta)
+      : Math.max(0, Math.min(p.race_to || 21, p.games_won + delta))
     if (next === p.games_won) return
     setScoreUpdating(true)
     setMatch((prev) => {
@@ -205,15 +208,13 @@ export function Match() {
       setRtmpStarting(true)
       try {
         const prefix = locationName ? `${locationName} - ${camera.name}` : camera.name
-        const title = `${prefix}: ${match.player_one.name} vs ${match.player_two.name}`
+        const title = match.match_type === 'practice'
+          ? `${prefix}: Practice: ${match.player_one.name}`
+          : `${prefix}: ${match.player_one.name} vs ${match.player_two.name}`
         const formatRating = (p) => p.rating ? `${p.rating.type} ${p.rating.value}` : null
-        const p1Part = formatRating(match.player_one)
-          ? `${match.player_one.name} (${formatRating(match.player_one)})`
-          : match.player_one.name
-        const p2Part = formatRating(match.player_two)
-          ? `${match.player_two.name} (${formatRating(match.player_two)})`
-          : match.player_two.name
-        const headerLine = `${p1Part} vs ${p2Part}`
+        const headerLine = match.match_type === 'practice'
+          ? `Practice: ${formatRating(match.player_one) ? `${match.player_one.name} (${formatRating(match.player_one)})` : match.player_one.name}`
+          : `${formatRating(match.player_one) ? `${match.player_one.name} (${formatRating(match.player_one)})` : match.player_one.name} vs ${formatRating(match.player_two) ? `${match.player_two.name} (${formatRating(match.player_two)})` : match.player_two.name}`
         const desc = match.description?.trim()
         const description = desc ? `${headerLine}\n${desc}` : headerLine
         const privacy = sessionStorage.getItem('table-tv-go-live-privacy') || 'EVERYONE'
@@ -268,9 +269,8 @@ export function Match() {
 
   useEffect(() => {
     if (!match) return
-    const title = locationName
-      ? `${locationName} – ${match.player_one.name} vs ${match.player_two.name}`
-      : `${match.player_one.name} vs ${match.player_two.name}`
+    const matchTitle = formatMatchTitle(match)
+    const title = locationName ? `${locationName} – ${matchTitle}` : matchTitle
     document.title = `${title} | Table TV`
     return () => { document.title = 'Table TV' }
   }, [match, locationName])
@@ -294,7 +294,9 @@ export function Match() {
     )
   }
 
-  const score = `${match.player_one.games_won} - ${match.player_two.games_won}`
+  const score = match.match_type === 'practice'
+    ? `${match.player_one.games_won} rack${match.player_one.games_won !== 1 ? 's' : ''}`
+    : `${match.player_one.games_won} - ${match.player_two.games_won}`
   const isActive = !match.end_time
   const winner = getMatchWinner(match)
   const hasStream = !!camera
@@ -307,7 +309,7 @@ export function Match() {
       <Paper sx={{ p: 3 }}>
         <Box display="flex" alignItems="center" gap={2} sx={{ mb: 2 }}>
           <Typography variant="h4" component="h1">
-            {match.player_one.name} vs {match.player_two.name}
+            {formatMatchTitle(match)}
           </Typography>
           <Typography variant="h5" component="span" color="primary" fontWeight={600}>
             {score}
@@ -421,6 +423,7 @@ export function Match() {
                 const p1Increased = entry.player_one_games_won > prev.player_one_games_won
                 const player = p1Increased ? match.player_one.name : match.player_two.name
                 const gameNumber = entry.player_one_games_won + entry.player_two_games_won
+                const rackNumber = entry.player_one_games_won
                 const startMs = i === 0 ? match.start_time : prev.timestamp
                 const durationSec = Math.max(1, (entry.timestamp - startMs) / 1000)
                 const isDownloading = downloadingGame === i
@@ -432,7 +435,7 @@ export function Match() {
                       match.camera_id,
                       startMs,
                       durationSec,
-                      `game-${gameNumber}.mp4`
+                      match.match_type === 'practice' ? `rack-${rackNumber}.mp4` : `game-${gameNumber}.mp4`
                     )
                   } catch (err) {
                     console.error('Download failed', err)
@@ -457,7 +460,9 @@ export function Match() {
                       {formatTime(entry.timestamp)}
                     </Typography>
                     <Typography variant="body1" fontWeight={600} sx={{ flex: 1 }}>
-                      {player} won game {gameNumber}, {entry.player_one_games_won} – {entry.player_two_games_won}
+                      {match.match_type === 'practice'
+                        ? `Rack ${rackNumber}`
+                        : `${player} won game ${gameNumber}, ${entry.player_one_games_won} – ${entry.player_two_games_won}`}
                     </Typography>
                     {match.camera_id && (
                       <Button

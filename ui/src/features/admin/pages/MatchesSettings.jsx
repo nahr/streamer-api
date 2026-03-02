@@ -21,7 +21,7 @@ import {
 } from '@mui/material'
 import DeleteIcon from '@mui/icons-material/Delete'
 import { listMatches, deleteMatch } from '../../cameras/api/poolMatches.js'
-import { formatTime, formatDuration, formatMatchWinner } from '../../../utils/format.js'
+import { formatTime, formatDuration, formatMatchTitle, formatMatchWinner } from '../../../utils/format.js'
 
 export function MatchesSettings() {
   const [matches, setMatches] = useState([])
@@ -110,12 +110,14 @@ export function MatchesSettings() {
                 </TableRow>
               ) : (
                 matches.map((match) => {
-                  const score = `${match.player_one.games_won} - ${match.player_two.games_won}`
+                  const score = match.match_type === 'practice'
+                    ? `${match.player_one.games_won} rack${match.player_one.games_won !== 1 ? 's' : ''}`
+                    : `${match.player_one.games_won} - ${match.player_two.games_won}`
                   const durationMs = (match.end_time ?? Date.now()) - match.start_time
                   return (
                     <TableRow key={match.id}>
                       <TableCell>
-                        {match.player_one.name} vs {match.player_two.name}
+                        {formatMatchTitle(match)}
                       </TableCell>
                       <TableCell>{score}</TableCell>
                       <TableCell>{match.camera_name}</TableCell>
@@ -160,9 +162,10 @@ export function MatchesSettings() {
         <DialogContent>
           {deleteDialog.match && (
             <Typography>
-              Are you sure you want to delete the match between &quot;
-              {deleteDialog.match.player_one.name}&quot; and &quot;
-              {deleteDialog.match.player_two.name}&quot;? This cannot be undone.
+              Are you sure you want to delete {deleteDialog.match.match_type === 'practice'
+                ? `the practice session for &quot;${deleteDialog.match.player_one.name}&quot;`
+                : `the match between &quot;${deleteDialog.match.player_one.name}&quot; and &quot;${deleteDialog.match.player_two.name}&quot;`}
+              ? This cannot be undone.
             </Typography>
           )}
         </DialogContent>

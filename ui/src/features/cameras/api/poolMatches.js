@@ -30,6 +30,7 @@ import { fetchWithAuth } from '../../../apiClient.js'
  * @property {string} [started_by] - Display name of user who started the match
  * @property {string} [description] - Match description (supports newlines), used in live video post
  * @property {ScoreHistoryEntry[]} [score_history] - History of score adjustments with timestamps
+ * @property {'standard'|'practice'} [match_type] - "standard" (two players) or "practice" (single player, racks count)
  */
 
 /**
@@ -73,7 +74,7 @@ export async function getActiveMatch(cameraId) {
 }
 
 /**
- * @param {{ player_one: { name: string, race_to: number, rating?: { type: string, value: number } }, player_two: { name: string, race_to: number, rating?: { type: string, value: number } }, camera_id: string, description?: string }} payload
+ * @param {{ match_type?: 'standard'|'practice', player_one: { name: string, race_to: number, rating?: { type: string, value: number } }, player_two?: { name: string, race_to: number, rating?: { type: string, value: number } }, camera_id: string, description?: string }} payload
  * @returns {Promise<{ id: string }>}
  */
 export async function createMatch(payload) {

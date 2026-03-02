@@ -39,6 +39,17 @@ pub struct PoolMatch {
     pub started_by_name: Option<String>,
     #[serde(default)]
     pub description: Option<String>,
+    #[serde(default)]
+    pub match_type: MatchType,
+}
+
+/// Match type: standard (two players) or practice (single player, racks count).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum MatchType {
+    #[default]
+    Standard,
+    Practice,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -58,6 +69,8 @@ pub struct PoolMatchDoc {
     pub description: Option<String>,
     #[serde(default)]
     pub score_history: Vec<ScoreHistoryEntry>,
+    #[serde(default)]
+    pub match_type: MatchType,
 }
 
 fn parse_match_doc(
@@ -71,6 +84,7 @@ fn parse_match_doc(
     started_by_name: Option<String>,
     description: Option<String>,
     score_history: String,
+    match_type: Option<String>,
 ) -> Result<PoolMatchDoc, ApiError> {
     let player_one: MatchPlayer =
         serde_json::from_str(&player_one).map_err(|e| ApiError::Unknown(e.to_string()))?;
@@ -88,6 +102,10 @@ fn parse_match_doc(
         .transpose()?;
     let score_history: Vec<ScoreHistoryEntry> =
         serde_json::from_str(&score_history).unwrap_or_default();
+    let match_type = match match_type.as_deref() {
+        Some("practice") => MatchType::Practice,
+        _ => MatchType::Standard,
+    };
     Ok(PoolMatchDoc {
         id: Some(id),
         player_one,
@@ -99,6 +117,7 @@ fn parse_match_doc(
         started_by_name,
         description,
         score_history,
+        match_type,
     })
 }
 
@@ -107,7 +126,7 @@ impl Db {
     pub fn list_pool_matches(&self) -> Result<Vec<PoolMatchDoc>, ApiError> {
         self.execute(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, player_one, player_two, start_time, end_time, camera_id, started_by_sub, started_by_name, description, score_history FROM pool_matches",
+                "SELECT id, player_one, player_two, start_time, end_time, camera_id, started_by_sub, started_by_name, description, score_history, match_type FROM pool_matches",
             )?;
             let rows = stmt.query_map([], |row| {
                 parse_match_doc(
@@ -121,6 +140,7 @@ impl Db {
                     row.get(7)?,
                     row.get(8)?,
                     row.get::<_, String>(9).unwrap_or_else(|_| "[]".to_string()),
+                    row.get::<_, Option<String>>(10).ok().flatten(),
                 )
                 .map_err(|e| rusqlite::Error::InvalidParameterName(e.to_string()))
             })?;
@@ -134,7 +154,7 @@ impl Db {
         self.execute(|conn| {
             tracing::debug!(match_id = %id, "find_pool_match_by_id: db lock acquired");
             let mut stmt = conn.prepare(
-                "SELECT id, player_one, player_two, start_time, end_time, camera_id, started_by_sub, started_by_name, description, score_history FROM pool_matches WHERE id = ?1",
+                "SELECT id, player_one, player_two, start_time, end_time, camera_id, started_by_sub, started_by_name, description, score_history, match_type FROM pool_matches WHERE id = ?1",
             )?;
             let mut rows = stmt.query([id])?;
             if let Some(row) = rows.next()? {
@@ -149,6 +169,7 @@ impl Db {
                     row.get(7)?,
                     row.get(8)?,
                     row.get::<_, String>(9).unwrap_or_else(|_| "[]".to_string()),
+                    row.get::<_, Option<String>>(10).ok().flatten(),
                 )?;
                 Ok(Some(doc))
             } else {
@@ -164,7 +185,7 @@ impl Db {
     ) -> Result<Option<PoolMatchDoc>, ApiError> {
         self.execute(|conn| {
             let mut stmt = conn.prepare(
-                "SELECT id, player_one, player_two, start_time, end_time, camera_id, started_by_sub, started_by_name, description, score_history FROM pool_matches WHERE camera_id = ?1 AND end_time IS NULL",
+                "SELECT id, player_one, player_two, start_time, end_time, camera_id, started_by_sub, started_by_name, description, score_history, match_type FROM pool_matches WHERE camera_id = ?1 AND end_time IS NULL",
             )?;
             let mut rows = stmt.query([camera_id])?;
             if let Some(row) = rows.next()? {
@@ -179,6 +200,7 @@ impl Db {
                     row.get(7)?,
                     row.get(8)?,
                     row.get::<_, String>(9).unwrap_or_else(|_| "[]".to_string()),
+                    row.get::<_, Option<String>>(10).ok().flatten(),
                 )?;
                 Ok(Some(doc))
             } else {
@@ -204,9 +226,13 @@ impl Db {
             .map_err(|e| ApiError::Unknown(e.to_string()))?;
         let start_time = match_data.start_time.to_rfc3339();
         let end_time = match_data.end_time.map(|dt| dt.to_rfc3339());
+        let match_type = match match_data.match_type {
+            MatchType::Practice => "practice",
+            MatchType::Standard => "standard",
+        };
         self.execute(|conn| {
             conn.execute(
-                "INSERT INTO pool_matches (id, player_one, player_two, start_time, end_time, camera_id, started_by_sub, started_by_name, description, score_history) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, '[]')",
+                "INSERT INTO pool_matches (id, player_one, player_two, start_time, end_time, camera_id, started_by_sub, started_by_name, description, score_history, match_type) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, '[]', ?10)",
                 rusqlite::params![
                     id,
                     player_one,
@@ -217,6 +243,7 @@ impl Db {
                     match_data.started_by_sub,
                     match_data.started_by_name,
                     match_data.description,
+                    match_type,
                 ],
             )?;
             Ok(id)
@@ -243,7 +270,8 @@ impl Db {
             _ => return Err(ApiError::BadRequest("player must be 1 or 2".to_string())),
         };
 
-        if games_won > race_to {
+        // For practice (race_to=0) there is no limit; for standard, enforce race_to
+        if race_to > 0 && games_won > race_to {
             return Err(ApiError::BadRequest(format!(
                 "games_won ({}) cannot exceed race_to ({})",
                 games_won, race_to
@@ -287,7 +315,8 @@ impl Db {
             score_history.push(history_entry);
         }
 
-        let end_time = if games_won == race_to {
+        // Practice (race_to=0) never auto-ends; standard ends when games_won == race_to
+        let end_time = if race_to > 0 && games_won == race_to {
             Some(Utc::now())
         } else if doc.end_time.is_some() && is_correction {
             None

@@ -64,7 +64,8 @@ impl Db {
                 started_by_sub TEXT,
                 started_by_name TEXT,
                 description TEXT,
-                score_history TEXT NOT NULL DEFAULT '[]'
+                score_history TEXT NOT NULL DEFAULT '[]',
+                match_type TEXT NOT NULL DEFAULT 'standard'
             );
             CREATE TABLE IF NOT EXISTS users (
                 auth0_sub TEXT PRIMARY KEY,
@@ -100,6 +101,15 @@ impl Db {
             )? > 0;
             if !has_score_history {
                 conn.execute("ALTER TABLE pool_matches ADD COLUMN score_history TEXT NOT NULL DEFAULT '[]'", [])?;
+            }
+            // Migration: add match_type for practice matches
+            let has_match_type: bool = conn.query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('pool_matches') WHERE name='match_type'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )? > 0;
+            if !has_match_type {
+                conn.execute("ALTER TABLE pool_matches ADD COLUMN match_type TEXT NOT NULL DEFAULT 'standard'", [])?;
             }
             Ok(())
         })

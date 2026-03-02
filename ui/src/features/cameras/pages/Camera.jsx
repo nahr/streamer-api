@@ -19,6 +19,8 @@ import {
   InputLabel,
   Select,
   MenuItem,
+  Tabs,
+  Tab,
 } from '@mui/material'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import StopIcon from '@mui/icons-material/Stop'
@@ -44,10 +46,12 @@ export function Camera() {
   const [matchLoading, setMatchLoading] = useState(false)
   const [startDialogOpen, setStartDialogOpen] = useState(false)
   const [startForm, setStartForm] = useState({
+    matchType: 'standard',
     playerOneName: '',
     playerTwoName: '',
     playerOneRaceTo: 5,
     playerTwoRaceTo: 5,
+    practiceTargetRacks: 0,
     playerOneRating: '',
     playerTwoRating: '',
     playerOneRatingType: 'Fargo',
@@ -166,12 +170,22 @@ export function Camera() {
   }, [])
 
   const handleStartMatch = async () => {
-    const { playerOneName, playerTwoName, playerOneRaceTo, playerTwoRaceTo, playerOneRating, playerTwoRating, playerOneRatingType, playerTwoRatingType, matchDescription } = startForm
-    if (!playerOneName.trim() || !playerTwoName.trim()) {
+    const { matchType, playerOneName, playerTwoName, playerOneRaceTo, playerTwoRaceTo, practiceTargetRacks, playerOneRating, playerTwoRating, playerOneRatingType, playerTwoRatingType, matchDescription } = startForm
+    const isPractice = matchType === 'practice'
+    if (!playerOneName.trim()) {
+      setStartError('Player name is required')
+      return
+    }
+    if (!isPractice && !playerTwoName.trim()) {
       setStartError('Both player names are required')
       return
     }
-    if (playerOneRaceTo < 1 || playerOneRaceTo > 21 || playerTwoRaceTo < 1 || playerTwoRaceTo > 21) {
+    if (isPractice) {
+      if (practiceTargetRacks < 0 || practiceTargetRacks > 21) {
+        setStartError('Target racks must be 0 (no limit) or 1–21')
+        return
+      }
+    } else if (playerOneRaceTo < 1 || playerOneRaceTo > 21 || playerTwoRaceTo < 1 || playerTwoRaceTo > 21) {
       setStartError('Race to must be between 1 and 21 for each player')
       return
     }
@@ -185,22 +199,27 @@ export function Camera() {
     const r2 = parseRating(p2Rating)
     setStartError('')
     try {
-      const { id: matchId } = await createMatch({
+      const payload = {
         player_one: {
           name: playerOneName.trim(),
-          race_to: playerOneRaceTo,
+          race_to: isPractice ? practiceTargetRacks : playerOneRaceTo,
           ...(r1 != null && { rating: { type: playerOneRatingType, value: r1 } }),
-        },
-        player_two: {
-          name: playerTwoName.trim(),
-          race_to: playerTwoRaceTo,
-          ...(r2 != null && { rating: { type: playerTwoRatingType, value: r2 } }),
         },
         camera_id: camera.id,
         ...(matchDescription.trim() && { description: matchDescription.trim() }),
-      })
+      }
+      if (isPractice) {
+        payload.match_type = 'practice'
+      } else {
+        payload.player_two = {
+          name: playerTwoName.trim(),
+          race_to: playerTwoRaceTo,
+          ...(r2 != null && { rating: { type: playerTwoRatingType, value: r2 } }),
+        }
+      }
+      const { id: matchId } = await createMatch(payload)
       setStartDialogOpen(false)
-      setStartForm({ playerOneName: '', playerTwoName: '', playerOneRaceTo: 5, playerTwoRaceTo: 5, playerOneRating: '', playerTwoRating: '', playerOneRatingType: 'Fargo', playerTwoRatingType: 'Fargo', matchDescription: '' })
+      setStartForm({ matchType: 'standard', playerOneName: '', playerTwoName: '', playerOneRaceTo: 5, playerTwoRaceTo: 5, practiceTargetRacks: 0, playerOneRating: '', playerTwoRating: '', playerOneRatingType: 'Fargo', playerTwoRatingType: 'Fargo', matchDescription: '' })
       navigate(`/match/${matchId}`)
     } catch (err) {
       setStartError(err.message)
@@ -209,8 +228,11 @@ export function Camera() {
 
   const handleScoreChange = async (player, delta) => {
     if (!activeMatch || scoreUpdating) return
+    const isPractice = activeMatch.match_type === 'practice'
     const p = player === 1 ? activeMatch.player_one : activeMatch.player_two
-    const next = Math.max(0, Math.min(p.race_to, p.games_won + delta))
+    const next = isPractice && p.race_to === 0
+      ? Math.max(0, p.games_won + delta)
+      : Math.max(0, Math.min(p.race_to || 21, p.games_won + delta))
     if (next === p.games_won) return
     setScoreUpdating(true)
     setActiveMatch((prev) => {
@@ -270,7 +292,9 @@ export function Camera() {
       try {
         const prefix = locationName ? `${locationName} - ${camera.name}` : camera.name
         const title = activeMatch
-          ? `${prefix}: ${activeMatch.player_one.name} vs ${activeMatch.player_two.name}`
+          ? (activeMatch.match_type === 'practice'
+              ? `${prefix}: Practice: ${activeMatch.player_one.name}`
+              : `${prefix}: ${activeMatch.player_one.name} vs ${activeMatch.player_two.name}`)
           : `${prefix} - Table TV`
         const formatRating = (p) => p.rating ? `${p.rating.type} ${p.rating.value}` : null
         const p1Part = activeMatch
@@ -278,12 +302,14 @@ export function Camera() {
             ? `${activeMatch.player_one.name} (${formatRating(activeMatch.player_one)})`
             : activeMatch.player_one.name)
           : null
-        const p2Part = activeMatch
+        const p2Part = activeMatch && activeMatch.match_type !== 'practice'
           ? (formatRating(activeMatch.player_two)
             ? `${activeMatch.player_two.name} (${formatRating(activeMatch.player_two)})`
             : activeMatch.player_two.name)
           : null
-        const headerLine = activeMatch && p1Part && p2Part ? `${p1Part} vs ${p2Part}` : null
+        const headerLine = activeMatch?.match_type === 'practice'
+          ? (p1Part ? `Practice: ${p1Part}` : null)
+          : (activeMatch && p1Part && p2Part ? `${p1Part} vs ${p2Part}` : null)
         const desc = activeMatch?.description?.trim()
         const description = headerLine
           ? (desc ? `${headerLine}\n${desc}` : headerLine)
@@ -561,9 +587,19 @@ export function Camera() {
       <Dialog open={startDialogOpen} onClose={() => setStartDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Start pool match</DialogTitle>
         <DialogContent>
+          <Tabs
+            value={startForm.matchType}
+            onChange={(_, v) => setStartForm((f) => ({ ...f, matchType: v }))}
+            sx={{ mb: 2, mt: 0.5 }}
+          >
+            <Tab label="Match" value="standard" />
+            <Tab label="Practice" value="practice" />
+          </Tabs>
           <Stack direction="row" spacing={3} sx={{ mt: 1 }}>
             <Stack spacing={2} sx={{ flex: 1 }}>
-              <Typography variant="subtitle2" color="text.secondary">Player 1</Typography>
+              <Typography variant="subtitle2" color="text.secondary">
+                {startForm.matchType === 'practice' ? 'Player' : 'Player 1'}
+              </Typography>
               <TextField
                 label="Name"
                 value={startForm.playerOneName}
@@ -571,72 +607,89 @@ export function Camera() {
                 fullWidth
                 autoFocus
               />
-              <FormControl fullWidth>
-                <InputLabel>Rating type</InputLabel>
-                <Select
-                  value={startForm.playerOneRatingType}
-                  label="Rating type"
-                  onChange={(e) => setStartForm((f) => ({ ...f, playerOneRatingType: e.target.value }))}
-                >
-                  <MenuItem value="Fargo">Fargo</MenuItem>
-                  <MenuItem value="Apa">APA</MenuItem>
-                </Select>
-              </FormControl>
-              <TextField
-                label="Rating (optional)"
-                placeholder={startForm.playerOneRatingType === 'Fargo' ? 'e.g. 650' : 'e.g. 5'}
-                type="number"
-                value={startForm.playerOneRating}
-                onChange={(e) => setStartForm((f) => ({ ...f, playerOneRating: e.target.value }))}
-                inputProps={{ min: 0, max: startForm.playerOneRatingType === 'Apa' ? 9 : undefined }}
-                fullWidth
-              />
-              <TextField
-                label="Race to"
-                type="number"
-                value={startForm.playerOneRaceTo}
-                onChange={(e) => setStartForm((f) => ({ ...f, playerOneRaceTo: parseInt(e.target.value, 10) || 5 }))}
-                inputProps={{ min: 1, max: 21 }}
-                fullWidth
-              />
+              {startForm.matchType === 'standard' && (
+                <>
+                  <FormControl fullWidth>
+                    <InputLabel>Rating type</InputLabel>
+                    <Select
+                      value={startForm.playerOneRatingType}
+                      label="Rating type"
+                      onChange={(e) => setStartForm((f) => ({ ...f, playerOneRatingType: e.target.value }))}
+                    >
+                      <MenuItem value="Fargo">Fargo</MenuItem>
+                      <MenuItem value="Apa">APA</MenuItem>
+                    </Select>
+                  </FormControl>
+                  <TextField
+                    label="Rating (optional)"
+                    placeholder={startForm.playerOneRatingType === 'Fargo' ? 'e.g. 650' : 'e.g. 5'}
+                    type="number"
+                    value={startForm.playerOneRating}
+                    onChange={(e) => setStartForm((f) => ({ ...f, playerOneRating: e.target.value }))}
+                    inputProps={{ min: 0, max: startForm.playerOneRatingType === 'Apa' ? 9 : undefined }}
+                    fullWidth
+                  />
+                  <TextField
+                    label="Race to"
+                    type="number"
+                    value={startForm.playerOneRaceTo}
+                    onChange={(e) => setStartForm((f) => ({ ...f, playerOneRaceTo: parseInt(e.target.value, 10) || 5 }))}
+                    inputProps={{ min: 1, max: 21 }}
+                    fullWidth
+                  />
+                </>
+              )}
+              {startForm.matchType === 'practice' && (
+                <TextField
+                  label="Target racks (0 = no limit)"
+                  type="number"
+                  value={startForm.practiceTargetRacks}
+                  onChange={(e) => setStartForm((f) => ({ ...f, practiceTargetRacks: parseInt(e.target.value, 10) || 0 }))}
+                  inputProps={{ min: 0, max: 21 }}
+                  fullWidth
+                  helperText="Optional. Leave 0 to track racks without a target."
+                />
+              )}
             </Stack>
-            <Stack spacing={2} sx={{ flex: 1 }}>
-              <Typography variant="subtitle2" color="text.secondary">Player 2</Typography>
-              <TextField
-                label="Name"
-                value={startForm.playerTwoName}
-                onChange={(e) => setStartForm((f) => ({ ...f, playerTwoName: e.target.value }))}
-                fullWidth
-              />
-              <FormControl fullWidth>
-                <InputLabel>Rating type</InputLabel>
-                <Select
-                  value={startForm.playerTwoRatingType}
-                  label="Rating type"
-                  onChange={(e) => setStartForm((f) => ({ ...f, playerTwoRatingType: e.target.value }))}
-                >
-                  <MenuItem value="Fargo">Fargo</MenuItem>
-                  <MenuItem value="Apa">APA</MenuItem>
-                </Select>
-              </FormControl>
-              <TextField
-                label="Rating (optional)"
-                placeholder={startForm.playerTwoRatingType === 'Fargo' ? 'e.g. 650' : 'e.g. 5'}
-                type="number"
-                value={startForm.playerTwoRating}
-                onChange={(e) => setStartForm((f) => ({ ...f, playerTwoRating: e.target.value }))}
-                inputProps={{ min: 0, max: startForm.playerTwoRatingType === 'Apa' ? 9 : undefined }}
-                fullWidth
-              />
-              <TextField
-                label="Race to"
-                type="number"
-                value={startForm.playerTwoRaceTo}
-                onChange={(e) => setStartForm((f) => ({ ...f, playerTwoRaceTo: parseInt(e.target.value, 10) || 5 }))}
-                inputProps={{ min: 1, max: 21 }}
-                fullWidth
-              />
-            </Stack>
+            {startForm.matchType === 'standard' && (
+              <Stack spacing={2} sx={{ flex: 1 }}>
+                <Typography variant="subtitle2" color="text.secondary">Player 2</Typography>
+                <TextField
+                  label="Name"
+                  value={startForm.playerTwoName}
+                  onChange={(e) => setStartForm((f) => ({ ...f, playerTwoName: e.target.value }))}
+                  fullWidth
+                />
+                <FormControl fullWidth>
+                  <InputLabel>Rating type</InputLabel>
+                  <Select
+                    value={startForm.playerTwoRatingType}
+                    label="Rating type"
+                    onChange={(e) => setStartForm((f) => ({ ...f, playerTwoRatingType: e.target.value }))}
+                  >
+                    <MenuItem value="Fargo">Fargo</MenuItem>
+                    <MenuItem value="Apa">APA</MenuItem>
+                  </Select>
+                </FormControl>
+                <TextField
+                  label="Rating (optional)"
+                  placeholder={startForm.playerTwoRatingType === 'Fargo' ? 'e.g. 650' : 'e.g. 5'}
+                  type="number"
+                  value={startForm.playerTwoRating}
+                  onChange={(e) => setStartForm((f) => ({ ...f, playerTwoRating: e.target.value }))}
+                  inputProps={{ min: 0, max: startForm.playerTwoRatingType === 'Apa' ? 9 : undefined }}
+                  fullWidth
+                />
+                <TextField
+                  label="Race to"
+                  type="number"
+                  value={startForm.playerTwoRaceTo}
+                  onChange={(e) => setStartForm((f) => ({ ...f, playerTwoRaceTo: parseInt(e.target.value, 10) || 5 }))}
+                  inputProps={{ min: 1, max: 21 }}
+                  fullWidth
+                />
+              </Stack>
+            )}
           </Stack>
           <TextField
             label="Match description (optional)"
