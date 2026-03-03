@@ -122,6 +122,14 @@ export async function deleteMatch(matchId) {
 }
 
 /**
+ * Check if the Web Share API can share video files (e.g. for "Save to Photos" on mobile).
+ * @returns {boolean}
+ */
+export function canShareVideo() {
+  return typeof navigator !== 'undefined' && navigator.share && navigator.canShare
+}
+
+/**
  * Download recording for a game (score history entry).
  * @param {string} cameraId
  * @param {number} startMs - Start time in milliseconds (match start or prev score timestamp)
@@ -142,6 +150,31 @@ export async function downloadGameRecording(cameraId, startMs, durationSec, file
   a.download = filename
   a.click()
   URL.revokeObjectURL(a.href)
+}
+
+/**
+ * Share recording via the native share sheet (e.g. "Save to Photos" on iOS).
+ * Use when the user wants to save to Photos instead of Files.
+ * @param {string} cameraId
+ * @param {number} startMs - Start time in milliseconds
+ * @param {number} durationSec - Duration in seconds
+ * @param {string} filename - Suggested filename for the shared file
+ * @returns {Promise<void>}
+ */
+export async function shareGameRecording(cameraId, startMs, durationSec, filename = 'game.mp4') {
+  const url = `/api/cameras/${encodeURIComponent(cameraId)}/recordings/download?start=${startMs}&duration=${durationSec}`
+  const res = await fetchWithAuth(url)
+  if (!res.ok) {
+    const text = await res.text()
+    throw new Error(text || 'Failed to download recording')
+  }
+  const blob = await res.blob()
+  const file = new File([blob], filename, { type: 'video/mp4' })
+  if (!navigator.canShare({ files: [file] })) {
+    throw new Error('Sharing this file is not supported')
+  }
+  // iOS cannot share text and files together; share files only
+  await navigator.share({ files: [file] })
 }
 
 /**

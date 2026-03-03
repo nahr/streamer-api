@@ -21,17 +21,17 @@ import {
 } from '@mui/material'
 import ArrowBackIcon from '@mui/icons-material/ArrowBack'
 import HistoryIcon from '@mui/icons-material/History'
-import DownloadIcon from '@mui/icons-material/Download'
 import StopIcon from '@mui/icons-material/Stop'
 import LiveTvIcon from '@mui/icons-material/LiveTv'
 import VideocamIcon from '@mui/icons-material/Videocam'
 import { getCamera, getFacebookLiveUrl, getFacebookStatus, getRtmpStreamStatus, startRtmpStream, stopRtmpStream } from '../api/cameras.js'
-import { getMatch, updateScore, endMatch, downloadGameRecording } from '../api/poolMatches.js'
+import { getMatch, updateScore, endMatch } from '../api/poolMatches.js'
 import { useApiInfo } from '../../../apiInfoStore.jsx'
 import { getToken, urlWithToken } from '../../../apiClient.js'
 import { MatchDuration } from '../../../components/MatchDuration.jsx'
 import { StreamPreview } from '../components/StreamPreview.jsx'
 import { MatchScoreControls } from '../components/MatchScoreControls.jsx'
+import { DownloadRecordingButton } from '../components/DownloadRecordingButton.jsx'
 import { formatTime, formatDuration, formatMatchWinner, formatMatchTitle, isRecordingAvailable, formatRecordingFilename } from '../../../utils/format.js'
 
 export function Match() {
@@ -439,22 +439,6 @@ export function Match() {
                   match.match_type === 'practice' && i > 0 ? prev.timestamp + 2000 : startMs
                 const durationSec = Math.max(1, (entry.timestamp - downloadStartMs) / 1000)
                 const isDownloading = downloadingGame === i
-                const handleDownload = async () => {
-                  if (!match.camera_id) return
-                  setDownloadingGame(i)
-                  try {
-                    await downloadGameRecording(
-                      match.camera_id,
-                      downloadStartMs,
-                      durationSec,
-                      formatRecordingFilename(startMs, match.match_type, match.match_type === 'practice' ? rackNumber : gameNumber)
-                    )
-                  } catch (err) {
-                    console.error('Download failed', err)
-                  } finally {
-                    setDownloadingGame(null)
-                  }
-                }
                 return (
                   <Box
                     key={i}
@@ -488,15 +472,16 @@ export function Match() {
                         : `${player} won game ${gameNumber}, ${entry.player_one_games_won} – ${entry.player_two_games_won}`}
                     </Typography>
                     {match.camera_id && isRecordingAvailable(entry.timestamp, recordDeleteAfter) && (
-                      <Button
-                        size="small"
-                        startIcon={<DownloadIcon />}
-                        onClick={handleDownload}
+                      <DownloadRecordingButton
+                        cameraId={match.camera_id}
+                        startMs={downloadStartMs}
+                        durationSec={durationSec}
+                        filename={formatRecordingFilename(startMs, match.match_type, match.match_type === 'practice' ? rackNumber : gameNumber)}
                         disabled={isDownloading}
+                        onLoadingStart={() => setDownloadingGame(i)}
+                        onLoadingEnd={() => setDownloadingGame(null)}
                         sx={{ flex: { xs: '1 1 auto', sm: '0 0 auto' } }}
-                      >
-                        {isDownloading ? 'Downloading…' : 'Download'}
-                      </Button>
+                      />
                     )}
                   </Box>
                 )

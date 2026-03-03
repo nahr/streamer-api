@@ -25,9 +25,8 @@ import StopIcon from '@mui/icons-material/Stop'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import LiveTvIcon from '@mui/icons-material/LiveTv'
 import HistoryIcon from '@mui/icons-material/History'
-import DownloadIcon from '@mui/icons-material/Download'
 import { getCamera, getFacebookLiveUrl, getFacebookStatus, getRtmpStreamStatus, formatCameraType, startRtmpStream, stopRtmpStream } from '../api/cameras.js'
-import { getActiveMatch, createMatch, updateScore, endMatch, listMatches, downloadGameRecording } from '../api/poolMatches.js'
+import { getActiveMatch, createMatch, updateScore, endMatch, listMatches } from '../api/poolMatches.js'
 import { formatTime, formatDuration, formatMatchTitle, isRecordingAvailable, formatRecordingFilename } from '../../../utils/format.js'
 import { useApiInfo } from '../../../apiInfoStore.jsx'
 import { useAuth } from '../../../authStore.jsx'
@@ -36,6 +35,7 @@ import { LiveTimestamp } from '../../../components/LiveTimestamp.jsx'
 import { StreamPreview } from '../components/StreamPreview.jsx'
 import { MatchScoreControls } from '../components/MatchScoreControls.jsx'
 import { RecordingTimelineBar } from '../components/RecordingTimelineBar.jsx'
+import { DownloadRecordingButton } from '../components/DownloadRecordingButton.jsx'
 
 export function Camera() {
   const { id } = useParams()
@@ -526,39 +526,23 @@ export function Camera() {
                 overlayMatch={activeMatch}
               />
               <Box sx={{ mt: 2, display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-                <Typography variant="body2" color="text.secondary" sx={{ mr: 1 }}>
+                <Typography variant="body2" color="text.secondary" sx={{ flexBasis: { xs: '100%', sm: 'auto' } }}>
                   Download last:
                 </Typography>
-                {[30, 60, 90].map((sec) => {
-                  const isDownloading = downloadingRecent === sec
-                  return (
-                    <Button
-                      key={sec}
-                      size="small"
-                      variant="outlined"
-                      startIcon={<DownloadIcon />}
-                      disabled={isDownloading}
-                      onClick={async () => {
-                        setDownloadingRecent(sec)
-                        try {
-                          const startMs = Date.now() - sec * 1000
-                          await downloadGameRecording(
-                            camera.id,
-                            startMs,
-                            sec,
-                            `clip-${sec}s.mp4`
-                          )
-                        } catch (err) {
-                          console.error('Download failed', err)
-                        } finally {
-                          setDownloadingRecent(null)
-                        }
-                      }}
-                    >
-                      {isDownloading ? 'Downloading…' : `${sec}s`}
-                    </Button>
-                  )
-                })}
+                {[30, 60, 90].map((sec) => (
+                  <DownloadRecordingButton
+                    key={sec}
+                    cameraId={camera.id}
+                    startMs={() => Date.now() - sec * 1000}
+                    durationSec={sec}
+                    filename={`clip-${sec}s.mp4`}
+                    disabled={downloadingRecent !== null}
+                    onLoadingStart={() => setDownloadingRecent(sec)}
+                    onLoadingEnd={() => setDownloadingRecent(null)}
+                    label={`${sec}s`}
+                    variant="outlined"
+                  />
+                ))}
               </Box>
             </Box>
 
@@ -664,22 +648,6 @@ export function Camera() {
                         const durationSec = Math.max(1, (entry.timestamp - downloadStartMs) / 1000)
                         const downloadKey = `${match.id}-${i}`
                         const isDownloading = downloadingGame === downloadKey
-                        const handleDownload = async () => {
-                          if (!match.camera_id) return
-                          setDownloadingGame(downloadKey)
-                          try {
-                            await downloadGameRecording(
-                              match.camera_id,
-                              downloadStartMs,
-                              durationSec,
-                              formatRecordingFilename(startMs, match.match_type, match.match_type === 'practice' ? rackNumber : gameNumber)
-                            )
-                          } catch (err) {
-                            console.error('Download failed', err)
-                          } finally {
-                            setDownloadingGame(null)
-                          }
-                        }
                         return (
                           <Box
                             key={i}
@@ -704,14 +672,15 @@ export function Camera() {
                                 : `${player} won game ${gameNumber}, ${entry.player_one_games_won} – ${entry.player_two_games_won}`}
                             </Typography>
                             {match.camera_id && isRecordingAvailable(entry.timestamp, recordDeleteAfter) && (
-                              <Button
-                                size="small"
-                                startIcon={<DownloadIcon />}
-                                onClick={handleDownload}
+                              <DownloadRecordingButton
+                                cameraId={match.camera_id}
+                                startMs={downloadStartMs}
+                                durationSec={durationSec}
+                                filename={formatRecordingFilename(startMs, match.match_type, match.match_type === 'practice' ? rackNumber : gameNumber)}
                                 disabled={isDownloading}
-                              >
-                                {isDownloading ? 'Downloading…' : 'Download'}
-                              </Button>
+                                onLoadingStart={() => setDownloadingGame(downloadKey)}
+                                onLoadingEnd={() => setDownloadingGame(null)}
+                              />
                             )}
                           </Box>
                         )
