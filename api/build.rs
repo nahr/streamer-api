@@ -21,6 +21,8 @@ fn main() {
         return;
     }
 
+    println!("cargo:rerun-if-changed={}", ui_dir.display());
+
     // Run npm run build in ui/
     let status = Command::new("npm")
         .args(["run", "build"])
