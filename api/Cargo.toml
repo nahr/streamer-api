@@ -16,7 +16,7 @@ assets = [
     ["debian/table-tv-start.sh", "usr/lib/table-tv/table-tv-start.sh", "755"],
     ["debian/stunnel-fb.conf", "etc/table-tv/stunnel-fb.conf", "644"],
     ["debian/mediamtx.yml", "etc/table-tv/mediamtx.yml", "644"],
-    ["debian/config.toml.example", "etc/table-tv/config.toml.example", "644"],
+    ["debian/table-tv.config.example", "etc/table-tv/table-tv.config.example", "644"],
     ["debian/avahi-table-tv.service", "etc/avahi/services/avahi-table-tv.service", "644"]
 ]
 maintainer-scripts = "debian/"

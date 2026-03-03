@@ -122,7 +122,7 @@ function App() {
         minHeight="100vh"
       >
         <Typography color="text.secondary">
-          Auth0 is not configured. Set AUTH0_DOMAIN, AUTH0_CLIENT_ID, and AUTH0_AUDIENCE in your .env file.
+          Auth0 is not configured. Set [auth0] domain, client_id, and audience in table-tv.config.
         </Typography>
       </Box>
     )

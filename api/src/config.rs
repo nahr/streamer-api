@@ -1,4 +1,4 @@
-//! Application configuration loaded from config.toml.
+//! Application configuration loaded from table-tv.config.
 
 use serde::Deserialize;
 
@@ -8,14 +8,17 @@ fn host_from_url(url: &str) -> String {
         .trim()
         .trim_start_matches("https://")
         .trim_start_matches("http://");
-    s.split([':', '/']).next().unwrap_or("127.0.0.1").to_string()
+    s.split([':', '/'])
+        .next()
+        .unwrap_or("127.0.0.1")
+        .to_string()
 }
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
 static CONFIG: OnceLock<AppConfig> = OnceLock::new();
 
-/// Application configuration. Load from config.toml via `load()`.
+/// Application configuration. Load from table-tv.config via `load()`.
 #[derive(Debug, Clone)]
 pub struct AppConfig {
     pub port: u16,
@@ -169,7 +172,7 @@ impl From<ConfigFile> for AppConfig {
     }
 }
 
-/// Load config from file. Search order: /etc/table-tv/config.toml, ./config.toml, ../config.toml.
+/// Load config from file. Search order: /etc/table-tv/table-tv.config, ./table-tv.config, ../table-tv.config.
 pub fn load() -> AppConfig {
     let candidates: Vec<std::path::PathBuf> = [
         std::path::Path::new("./config.toml"),
@@ -200,5 +203,7 @@ pub fn init() -> &'static AppConfig {
 
 /// Get the loaded config. Panics if `init()` was not called.
 pub fn config() -> &'static AppConfig {
-    CONFIG.get().expect("config not initialized; call config::init() first")
+    CONFIG
+        .get()
+        .expect("config not initialized; call config::init() first")
 }

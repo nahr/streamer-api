@@ -1,9 +1,9 @@
-# Table TV configuration - copy to config.toml and customize
-# cp /etc/table-tv/config.toml.example /etc/table-tv/config.toml
+# Table TV configuration - copy to table-tv.config and customize
+# cp table-tv.config.example table-tv.config
+# Or for API: cp table-tv.config.example api/table-tv.config
 
-port = 80
-sqlite_path = "/var/lib/table-tv/table-tv.db"
-ui_dist_path = "/usr/share/table-tv/ui-dist"
+port = 8080
+sqlite_path = "data/table-tv.db"
 
 # Optional: fixed token for RTMP pipeline
 # stream_token = "your-secret-token"

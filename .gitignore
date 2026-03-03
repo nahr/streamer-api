@@ -1,5 +1,5 @@
 .env
-config.toml
+table-tv.config
 .DS_Store
 *.mp4
 recordings/

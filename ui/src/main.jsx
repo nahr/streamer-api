@@ -37,7 +37,7 @@ function AppWithProviders() {
         p={2}
       >
         <Typography color="text.secondary" textAlign="center">
-          Auth0 is not configured. Set AUTH0_DOMAIN, AUTH0_CLIENT_ID, and AUTH0_AUDIENCE in your .env file.
+          Auth0 is not configured. Set [auth0] domain, client_id, and audience in table-tv.config.
         </Typography>
       </Box>
     )

@@ -1,10 +1,10 @@
 #!/bin/sh
 set -e
 
-# Config is loaded by table-tv from /etc/table-tv/config.toml
+# Config is loaded by table-tv from /etc/table-tv/table-tv.config
 
 # Start stunnel for Facebook RTMPS when config has use_stunnel_for_rtmps = true
-if [ -f /etc/table-tv/config.toml ] && grep -qE 'use_stunnel_for_rtmps\s*=\s*true' /etc/table-tv/config.toml; then
+if [ -f /etc/table-tv/table-tv.config ] && grep -qE 'use_stunnel_for_rtmps\s*=\s*true' /etc/table-tv/table-tv.config; then
     export USE_STUNNEL_FOR_RTMPS=1
 fi
 
