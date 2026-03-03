@@ -115,11 +115,8 @@ impl Db {
         })
     }
 
-    /// Open the database using `SQLITE_PATH` (or `POLODB_PATH` for compatibility) env var, or default to `data/table-tv.db`.
+    /// Open the database using path from config.
     pub fn open_default() -> Result<Self, ApiError> {
-        let path = std::env::var("SQLITE_PATH")
-            .or_else(|_| std::env::var("POLODB_PATH"))
-            .unwrap_or_else(|_| "data/table-tv.db".to_string());
-        Self::open(path)
+        Self::open(crate::config::config().sqlite_path.clone())
     }
 }

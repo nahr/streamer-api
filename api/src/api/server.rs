@@ -39,16 +39,17 @@ impl ApiServer {
             video::spawn_overlay_refresh_task(db.clone(), overlay.clone(), rtmp_processes.clone());
         }
         tracing::info!("router: overlay done");
-        let auth0_ready = std::env::var("AUTH0_DOMAIN").is_ok()
-            && (std::env::var("AUTH0_AUDIENCE").is_ok()
-                || std::env::var("AUTH0_CLIENT_ID").is_ok());
+        let cfg = crate::config::config();
+        let auth0_ready = cfg.auth0_domain.as_ref().map_or(false, |s| !s.is_empty())
+            && (cfg.auth0_audience.as_ref().map_or(false, |s| !s.is_empty())
+                || cfg.auth0_client_id.as_ref().map_or(false, |s| !s.is_empty()));
         let jwks = auth0_ready.then(|| {
             Arc::new(auth::JwksCache::new(
-                &std::env::var("AUTH0_DOMAIN").unwrap_or_default(),
+                cfg.auth0_domain.as_deref().unwrap_or(""),
             ))
         });
 
-        let stream_token = std::env::var("STREAM_TOKEN").unwrap_or_else(|_| {
+        let stream_token = cfg.stream_token.clone().unwrap_or_else(|| {
             use std::collections::hash_map::DefaultHasher;
             use std::hash::{Hash, Hasher};
             let mut hasher = DefaultHasher::new();
@@ -116,9 +117,7 @@ impl ApiServer {
             // .layer(TraceLayer::new_for_http())
             .with_state(app_state);
 
-        let ui_dist = std::env::var("UI_DIST_PATH")
-            .ok()
-            .map(PathBuf::from)
+        let ui_dist = cfg.ui_dist_path.clone()
             .filter(|p| p.exists())
             .or_else(|| {
                 ["ui-dist", "ui/dist", "../ui/dist"]
@@ -151,7 +150,7 @@ impl ApiServer {
 
     pub async fn serve(db: Db) -> Result<(), ApiError> {
         let app = Self::router(db);
-        let port = std::env::var("PORT").unwrap_or_else(|_| "8080".to_string());
+        let port = crate::config::config().port;
         let addr: std::net::SocketAddr = format!("0.0.0.0:{}", port).parse()?;
         tracing::info!("starting api server");
         let listener = tokio::net::TcpListener::bind(addr).await?;

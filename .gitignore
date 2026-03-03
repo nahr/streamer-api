@@ -1,4 +1,5 @@
 .env
+config.toml
 mediamtx.yml
 .DS_Store
 *.mp4

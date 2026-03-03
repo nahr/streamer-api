@@ -13,9 +13,7 @@ use crate::api::AppState;
 use crate::error::ApiError;
 
 fn mediamtx_playback_base() -> String {
-    std::env::var("MEDIAMTX_PLAYBACK_URL")
-        .or_else(|_| std::env::var("MEDIAMTX_API_URL").map(|u| u.replace("9997", "9996")))
-        .unwrap_or_else(|_| "http://127.0.0.1:9996".to_string())
+    crate::config::config().mediamtx_playback_url.clone()
 }
 
 #[derive(serde::Deserialize)]

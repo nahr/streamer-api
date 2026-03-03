@@ -2,6 +2,7 @@ use std::path::PathBuf;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 pub mod api;
+pub mod config;
 pub mod db;
 pub mod error;
 pub mod video;
@@ -56,11 +57,7 @@ fn init_ssl_certs_macos() {}
 async fn main() -> Result<(), crate::error::ApiError> {
     println!("[table-tv] main: starting");
     init_ssl_certs_macos();
-    dotenvy::dotenv().ok();
-    // When running from api/, also try parent .env (workspace root)
-    if std::env::var("AUTH0_DOMAIN").is_err() {
-        let _ = dotenvy::from_path(std::path::Path::new("../.env"));
-    }
+    let _config = config::init();
     tracing_subscriber::registry()
         .with(
             EnvFilter::try_from_default_env()

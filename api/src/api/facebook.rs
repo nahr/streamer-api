@@ -84,18 +84,24 @@ fn base_url_from_request(headers: &HeaderMap) -> Option<String> {
     Some(format!("{}://{}", scheme, host))
 }
 
-/// Resolves base URL: request-derived first, then BASE_URL env, else error.
-fn resolve_base_url(headers: &HeaderMap, env_fallback: bool) -> Result<String, ApiError> {
+/// Resolves base URL: request-derived first, then config base_url, else error.
+fn resolve_base_url(headers: &HeaderMap, config_fallback: bool) -> Result<String, ApiError> {
     if let Some(url) = base_url_from_request(headers) {
         return Ok(url);
     }
-    if env_fallback {
-        std::env::var("BASE_URL").map_err(|_| {
-            ApiError::BadRequest(
-                "BASE_URL must be set for OAuth callback (e.g. https://example.com). \
-                 Or ensure requests include Host/X-Forwarded-Host.".to_string(),
-            )
-        })
+    if config_fallback {
+        crate::config::config()
+            .base_url
+            .as_ref()
+            .filter(|s| !s.is_empty())
+            .cloned()
+            .ok_or_else(|| {
+                ApiError::BadRequest(
+                    "base_url must be set for OAuth callback (e.g. https://example.com). \
+                     Or ensure requests include Host/X-Forwarded-Host."
+                        .to_string(),
+                )
+            })
     } else {
         Err(ApiError::BadRequest(
             "Could not determine base URL from request. Set BASE_URL or ensure Host header is present.".to_string(),
@@ -146,9 +152,12 @@ pub async fn facebook_auth(
     headers: HeaderMap,
     Query(q): Query<AuthQuery>,
 ) -> Result<Redirect, ApiError> {
-    let app_id = std::env::var("FACEBOOK_APP_ID").map_err(|_| {
-        ApiError::BadRequest("Facebook OAuth not configured. Set FACEBOOK_APP_ID.".to_string())
-    })?;
+    let app_id = crate::config::config()
+        .facebook_app_id
+        .as_ref()
+        .filter(|s| !s.is_empty())
+        .cloned()
+        .ok_or_else(|| ApiError::BadRequest("Facebook OAuth not configured. Set facebook.app_id.".to_string()))?;
     let base_url = resolve_base_url(&headers, true)?;
 
     let return_to = q.return_to.trim();
@@ -158,8 +167,12 @@ pub async fn facebook_auth(
         ));
     }
 
-    let app_secret = std::env::var("FACEBOOK_APP_SECRET")
-        .map_err(|_| ApiError::BadRequest("Facebook OAuth not configured.".to_string()))?;
+    let app_secret = crate::config::config()
+        .facebook_app_secret
+        .as_ref()
+        .filter(|s| !s.is_empty())
+        .cloned()
+        .ok_or_else(|| ApiError::BadRequest("Facebook OAuth not configured. Set facebook.app_secret.".to_string()))?;
     let state = create_signed_state(return_to, app_secret.as_bytes());
 
     let redirect_uri = format!("{}/facebook/callback", base_url.trim_end_matches('/'));
@@ -189,8 +202,13 @@ pub async fn facebook_exchange_code(
     axum::Json(req): axum::Json<ExchangeCodeRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
     tracing::info!("Facebook exchange-code: received request");
-    let app_secret = std::env::var("FACEBOOK_APP_SECRET")
-        .map_err(|_| ApiError::BadRequest("Facebook OAuth not configured.".to_string()))?;
+    let cfg = crate::config::config();
+    let app_secret = cfg
+        .facebook_app_secret
+        .as_ref()
+        .filter(|s| !s.is_empty())
+        .cloned()
+        .ok_or_else(|| ApiError::BadRequest("Facebook OAuth not configured. Set facebook.app_secret.".to_string()))?;
     let return_to =
         verify_signed_state(req.state.trim(), app_secret.as_bytes()).ok_or_else(|| {
             tracing::warn!(
@@ -200,10 +218,18 @@ pub async fn facebook_exchange_code(
             ApiError::BadRequest("Invalid or expired state. Please try again.".to_string())
         })?;
 
-    let app_id = std::env::var("FACEBOOK_APP_ID")
-        .map_err(|_| ApiError::BadRequest("Facebook OAuth not configured.".to_string()))?;
-    let app_secret = std::env::var("FACEBOOK_APP_SECRET")
-        .map_err(|_| ApiError::BadRequest("Facebook OAuth not configured.".to_string()))?;
+    let app_id = cfg
+        .facebook_app_id
+        .as_ref()
+        .filter(|s| !s.is_empty())
+        .cloned()
+        .ok_or_else(|| ApiError::BadRequest("Facebook OAuth not configured. Set facebook.app_id.".to_string()))?;
+    let app_secret = cfg
+        .facebook_app_secret
+        .as_ref()
+        .filter(|s| !s.is_empty())
+        .cloned()
+        .ok_or_else(|| ApiError::BadRequest("Facebook OAuth not configured. Set facebook.app_secret.".to_string()))?;
     let base_url = resolve_base_url(&headers, true)?;
 
     let redirect_uri = format!("{}/facebook/callback", base_url.trim_end_matches('/'));
@@ -272,10 +298,11 @@ pub async fn facebook_status(
     _auth: AuthenticatedUser,
     headers: HeaderMap,
 ) -> Result<Json<serde_json::Value>, ApiError> {
-    let app_id = std::env::var("FACEBOOK_APP_ID").ok();
-    let app_secret = std::env::var("FACEBOOK_APP_SECRET").ok();
+    let cfg = crate::config::config();
+    let app_id = cfg.facebook_app_id.clone();
+    let app_secret = cfg.facebook_app_secret.clone();
     let base_url = base_url_from_request(&headers)
-        .or_else(|| std::env::var("BASE_URL").ok())
+        .or_else(|| cfg.base_url.clone())
         .filter(|s| !s.is_empty());
     let configured = app_id.as_ref().map_or(false, |s| !s.is_empty())
         && app_secret.as_ref().map_or(false, |s| !s.is_empty())

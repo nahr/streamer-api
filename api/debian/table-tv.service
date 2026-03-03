@@ -5,7 +5,6 @@ Wants=avahi-daemon.service
 
 [Service]
 Type=simple
-EnvironmentFile=-/etc/table-tv/.env
 Environment=UI_DIST_PATH=/usr/share/table-tv/ui-dist
 Environment=SQLITE_PATH=/var/lib/table-tv/table-tv.db
 Environment=PORT=8080

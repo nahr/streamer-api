@@ -6,10 +6,10 @@ mkdir -p /var/lib/table-tv /var/lib/table-tv/recordings
 chown root:root /var/lib/table-tv /var/lib/table-tv/recordings
 chmod 755 /var/lib/table-tv /var/lib/table-tv/recordings
 
-# Create .env from example if it doesn't exist
-if [ ! -f /etc/table-tv/.env ] && [ -f /etc/table-tv/env.example ]; then
-    cp /etc/table-tv/env.example /etc/table-tv/.env
-    chmod 600 /etc/table-tv/.env
+# Create config.toml from example if it doesn't exist
+if [ ! -f /etc/table-tv/config.toml ] && [ -f /etc/table-tv/config.toml.example ]; then
+    cp /etc/table-tv/config.toml.example /etc/table-tv/config.toml
+    chmod 644 /etc/table-tv/config.toml
 fi
 
 # Download MediaMTX if not present (not in Debian repos)

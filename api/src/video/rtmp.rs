@@ -216,17 +216,17 @@ pub fn rtmp_state_new() -> RtmpState {
     Arc::new(std::sync::RwLock::new(std::collections::HashMap::new()))
 }
 
-/// Rewrite rtmps:// URL to rtmp://host:19350 when USE_STUNNEL_FOR_RTMPS=1.
+/// Rewrite rtmps:// URL to rtmp://host:19350 when use_stunnel_for_rtmps is true.
 /// FFmpeg's native RTMPS often fails with "Input/output error"; stunnel works around this.
-/// STUNNEL_HOST defaults to 127.0.0.1 (same host/container); override if stunnel runs elsewhere.
 fn maybe_rewrite_rtmps_for_stunnel(url: &str) -> String {
-    if std::env::var("USE_STUNNEL_FOR_RTMPS").as_deref() != Ok("1") {
+    let cfg = crate::config::config();
+    if !cfg.use_stunnel_for_rtmps {
         return url.to_string();
     }
     if !url.starts_with("rtmps://") {
         return url.to_string();
     }
-    let host = std::env::var("STUNNEL_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
+    let host = &cfg.stunnel_host;
     // rtmps://host:port/path -> rtmp://STUNNEL_HOST:19350/path
     if let Some(path_start) = url[8..].find('/') {
         let path = &url[8 + path_start..];
@@ -300,7 +300,7 @@ pub fn spawn_rtmp_pipeline(
     let filter = build_filter_complex(location_name, camera_name);
     let output_url = maybe_rewrite_rtmps_for_stunnel(rtmp_url);
     if output_url != rtmp_url {
-        tracing::info!("RTMP: using stunnel relay (USE_STUNNEL_FOR_RTMPS=1)");
+        tracing::info!("RTMP: using stunnel relay (use_stunnel_for_rtmps=true)");
     }
     let args = build_rtmp_args(
         &video_input,

@@ -107,22 +107,23 @@ impl JwksCache {
 }
 
 fn auth0_config() -> Result<(String, Vec<String>), ApiError> {
-    let domain = std::env::var("AUTH0_DOMAIN")
-        .map_err(|_| ApiError::BadRequest("AUTH0_DOMAIN must be set".to_string()))?;
+    let cfg = crate::config::config();
+    let domain = cfg
+        .auth0_domain
+        .as_ref()
+        .filter(|s| !s.is_empty())
+        .cloned()
+        .ok_or_else(|| ApiError::BadRequest("auth0.domain must be set".to_string()))?;
     let mut audiences: Vec<String> = Vec::new();
-    if let Ok(a) = std::env::var("AUTH0_AUDIENCE") {
-        if !a.is_empty() {
-            audiences.push(a);
-        }
+    if let Some(a) = cfg.auth0_audience.as_ref().filter(|s| !s.is_empty()) {
+        audiences.push(a.clone());
     }
-    if let Ok(c) = std::env::var("AUTH0_CLIENT_ID") {
-        if !c.is_empty() {
-            audiences.push(c);
-        }
+    if let Some(c) = cfg.auth0_client_id.as_ref().filter(|s| !s.is_empty()) {
+        audiences.push(c.clone());
     }
     if audiences.is_empty() {
         return Err(ApiError::BadRequest(
-            "AUTH0_AUDIENCE or AUTH0_CLIENT_ID must be set for Auth0 login".to_string(),
+            "auth0.audience or auth0.client_id must be set for Auth0 login".to_string(),
         ));
     }
     Ok((domain, audiences))
@@ -151,8 +152,7 @@ pub async fn validate_token(
     let key = jwks.get_decoding_key(&kid).await?;
 
     let mut validation = Validation::new(jsonwebtoken::Algorithm::RS256);
-    let skip_audience = std::env::var("AUTH0_SKIP_AUDIENCE").as_deref() == Ok("true");
-    if skip_audience {
+    if crate::config::config().auth0_skip_audience {
         validation.validate_aud = false;
     } else {
         validation.set_audience(audiences);

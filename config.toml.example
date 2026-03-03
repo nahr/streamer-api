@@ -1,0 +1,31 @@
+# Table TV configuration - copy to config.toml and customize
+# cp config.toml.example config.toml
+# Or for API: cp config.toml.example api/config.toml
+
+port = 8080
+sqlite_path = "data/table-tv.db"
+
+# Optional: fixed token for RTMP pipeline
+# stream_token = "your-secret-token"
+
+# Auth0 (required for login)
+[auth0]
+# domain = "your-tenant.us.auth0.com"
+# client_id = "your-spa-client-id"
+# audience = "https://your-api-identifier"
+# skip_audience = true
+# connection = "facebook"
+
+# Optional: Facebook integration
+[facebook]
+# app_id = ""
+# app_secret = ""
+
+# base_url = "http://localhost:80"
+
+# MediaMTX (for RTSP cameras)
+[mediamtx]
+# api_url = "http://127.0.0.1:9997"
+
+# Facebook RTMPS via stunnel
+# use_stunnel_for_rtmps = true

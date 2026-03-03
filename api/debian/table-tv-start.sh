@@ -1,9 +1,11 @@
 #!/bin/sh
 set -e
 
-# If .env is empty or missing, use env.example
-if [ ! -s /etc/table-tv/.env ] && [ -f /etc/table-tv/env.example ]; then
-    cp /etc/table-tv/env.example /etc/table-tv/.env
+# Config is loaded by table-tv-api from /etc/table-tv/config.toml
+
+# Start stunnel for Facebook RTMPS when config has use_stunnel_for_rtmps = true
+if [ -f /etc/table-tv/config.toml ] && grep -qE 'use_stunnel_for_rtmps\s*=\s*true' /etc/table-tv/config.toml; then
+    export USE_STUNNEL_FOR_RTMPS=1
 fi
 
 # Start MediaMTX (RTSP, Control API, Playback) - must run before table-tv-api

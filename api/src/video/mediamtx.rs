@@ -6,17 +6,20 @@ use crate::db::camera::CameraDoc;
 use crate::db::settings::SettingsDoc;
 use crate::error::ApiError;
 
-/// MediaMTX Control API base URL. Default: http://127.0.0.1:9997
+/// MediaMTX Control API base URL.
 fn mediamtx_api_base() -> String {
-    std::env::var("MEDIAMTX_API_URL").unwrap_or_else(|_| "http://127.0.0.1:9997".to_string())
+    crate::config::config().mediamtx_api_url.clone()
 }
 
 /// RTSP URL to read from MediaMTX for a camera. Used when MediaMTX is available.
-/// MediaMTX host defaults to 127.0.0.1, port 8554.
 pub fn mediamtx_rtsp_url(camera_id: &str) -> String {
-    let host = std::env::var("MEDIAMTX_RTSP_HOST").unwrap_or_else(|_| "127.0.0.1".to_string());
-    let port = std::env::var("MEDIAMTX_RTSP_PORT").unwrap_or_else(|_| "8554".to_string());
-    format!("rtsp://{}:{}/camera/{}", host, port, camera_id)
+    let cfg = crate::config::config();
+    format!(
+        "rtsp://{}:{}/camera/{}",
+        cfg.mediamtx_rtsp_host,
+        cfg.mediamtx_rtsp_port,
+        camera_id
+    )
 }
 
 /// Path name in MediaMTX for a camera.
