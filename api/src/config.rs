@@ -1,6 +1,15 @@
 //! Application configuration loaded from config.toml.
 
 use serde::Deserialize;
+
+/// Extract host from URL (e.g. "http://127.0.0.1:9997" -> "127.0.0.1").
+fn host_from_url(url: &str) -> String {
+    let s = url
+        .trim()
+        .trim_start_matches("https://")
+        .trim_start_matches("http://");
+    s.split([':', '/']).next().unwrap_or("127.0.0.1").to_string()
+}
 use std::path::PathBuf;
 use std::sync::OnceLock;
 
@@ -22,10 +31,11 @@ pub struct AppConfig {
 
     pub facebook_app_id: Option<String>,
     pub facebook_app_secret: Option<String>,
-    pub base_url: Option<String>,
 
     pub mediamtx_api_url: String,
+    /// Derived from mediamtx_api_url (port 9997 -> 9996).
     pub mediamtx_playback_url: String,
+    /// Derived from mediamtx_api_url host.
     pub mediamtx_rtsp_host: String,
     pub mediamtx_rtsp_port: String,
 
@@ -43,8 +53,6 @@ struct ConfigFile {
     ui_dist_path: Option<PathBuf>,
     #[serde(default)]
     stream_token: Option<String>,
-    #[serde(default)]
-    base_url: Option<String>,
     #[serde(default)]
     use_stunnel_for_rtmps: Option<bool>,
 
@@ -85,10 +93,6 @@ struct MediamtxSection {
     #[serde(default)]
     api_url: Option<String>,
     #[serde(default)]
-    playback_url: Option<String>,
-    #[serde(default)]
-    rtsp_host: Option<String>,
-    #[serde(default)]
     rtsp_port: Option<String>,
 }
 
@@ -112,7 +116,6 @@ impl Default for AppConfig {
             auth0_connection: None,
             facebook_app_id: None,
             facebook_app_secret: None,
-            base_url: None,
             mediamtx_api_url: "http://127.0.0.1:9997".to_string(),
             mediamtx_playback_url: "http://127.0.0.1:9996".to_string(),
             mediamtx_rtsp_host: "127.0.0.1".to_string(),
@@ -134,7 +137,6 @@ impl From<ConfigFile> for AppConfig {
         }
         config.ui_dist_path = f.ui_dist_path;
         config.stream_token = f.stream_token.filter(|s| !s.is_empty());
-        config.base_url = f.base_url.filter(|s| !s.is_empty());
         config.use_stunnel_for_rtmps = f.use_stunnel_for_rtmps.unwrap_or(false);
 
         if let Some(a) = f.auth0 {
@@ -150,13 +152,9 @@ impl From<ConfigFile> for AppConfig {
         }
         if let Some(m) = f.mediamtx {
             if let Some(u) = m.api_url.filter(|s| !s.is_empty()) {
-                config.mediamtx_api_url = u;
-            }
-            if let Some(u) = m.playback_url.filter(|s| !s.is_empty()) {
-                config.mediamtx_playback_url = u;
-            }
-            if let Some(h) = m.rtsp_host.filter(|s| !s.is_empty()) {
-                config.mediamtx_rtsp_host = h;
+                config.mediamtx_api_url = u.clone();
+                config.mediamtx_playback_url = u.replace("9997", "9996");
+                config.mediamtx_rtsp_host = host_from_url(&u);
             }
             if let Some(p) = m.rtsp_port.filter(|s| !s.is_empty()) {
                 config.mediamtx_rtsp_port = p;

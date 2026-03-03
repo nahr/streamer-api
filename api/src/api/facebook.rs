@@ -66,7 +66,6 @@ fn verify_signed_state(state: &str, secret: &[u8]) -> Option<String> {
 }
 
 /// Derives base URL from request headers (Host, X-Forwarded-Host, X-Forwarded-Proto).
-/// Falls back to BASE_URL env var if headers don't yield a valid URL.
 fn base_url_from_request(headers: &HeaderMap) -> Option<String> {
     use axum::http::header;
     let host = headers
@@ -84,29 +83,13 @@ fn base_url_from_request(headers: &HeaderMap) -> Option<String> {
     Some(format!("{}://{}", scheme, host))
 }
 
-/// Resolves base URL: request-derived first, then config base_url, else error.
-fn resolve_base_url(headers: &HeaderMap, config_fallback: bool) -> Result<String, ApiError> {
-    if let Some(url) = base_url_from_request(headers) {
-        return Ok(url);
-    }
-    if config_fallback {
-        crate::config::config()
-            .base_url
-            .as_ref()
-            .filter(|s| !s.is_empty())
-            .cloned()
-            .ok_or_else(|| {
-                ApiError::BadRequest(
-                    "base_url must be set for OAuth callback (e.g. https://example.com). \
-                     Or ensure requests include Host/X-Forwarded-Host."
-                        .to_string(),
-                )
-            })
-    } else {
-        Err(ApiError::BadRequest(
-            "Could not determine base URL from request. Set BASE_URL or ensure Host header is present.".to_string(),
-        ))
-    }
+/// Resolves base URL from request headers (Host, X-Forwarded-Host, X-Forwarded-Proto).
+fn resolve_base_url(headers: &HeaderMap) -> Result<String, ApiError> {
+    base_url_from_request(headers).ok_or_else(|| {
+        ApiError::BadRequest(
+            "Could not determine base URL from request. Ensure Host or X-Forwarded-Host header is present.".to_string(),
+        )
+    })
 }
 
 /// Short-lived cache for user tokens (auth_key -> access_token).
@@ -158,7 +141,7 @@ pub async fn facebook_auth(
         .filter(|s| !s.is_empty())
         .cloned()
         .ok_or_else(|| ApiError::BadRequest("Facebook OAuth not configured. Set facebook.app_id.".to_string()))?;
-    let base_url = resolve_base_url(&headers, true)?;
+    let base_url = resolve_base_url(&headers)?;
 
     let return_to = q.return_to.trim();
     if return_to.is_empty() || !return_to.starts_with('/') {
@@ -230,7 +213,7 @@ pub async fn facebook_exchange_code(
         .filter(|s| !s.is_empty())
         .cloned()
         .ok_or_else(|| ApiError::BadRequest("Facebook OAuth not configured. Set facebook.app_secret.".to_string()))?;
-    let base_url = resolve_base_url(&headers, true)?;
+    let base_url = resolve_base_url(&headers)?;
 
     let redirect_uri = format!("{}/facebook/callback", base_url.trim_end_matches('/'));
 
@@ -301,9 +284,7 @@ pub async fn facebook_status(
     let cfg = crate::config::config();
     let app_id = cfg.facebook_app_id.clone();
     let app_secret = cfg.facebook_app_secret.clone();
-    let base_url = base_url_from_request(&headers)
-        .or_else(|| cfg.base_url.clone())
-        .filter(|s| !s.is_empty());
+    let base_url = base_url_from_request(&headers).filter(|s| !s.is_empty());
     let configured = app_id.as_ref().map_or(false, |s| !s.is_empty())
         && app_secret.as_ref().map_or(false, |s| !s.is_empty())
         && base_url.as_ref().map_or(false, |s| !s.is_empty());

@@ -21,11 +21,10 @@ sqlite_path = "data/table-tv.db"
 # app_id = ""
 # app_secret = ""
 
-# base_url = "http://localhost:80"
-
-# MediaMTX (for RTSP cameras)
+# MediaMTX (for RTSP cameras). playback_url and rtsp_host derived from api_url.
 [mediamtx]
 # api_url = "http://127.0.0.1:9997"
+# rtsp_port = "8554"
 
 # Facebook RTMPS via stunnel
 # use_stunnel_for_rtmps = true
