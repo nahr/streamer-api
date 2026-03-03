@@ -2,6 +2,27 @@
 name = "table-tv-api"
 version = "0.1.0"
 edition = "2021"
+description = "Table TV - pool table camera streaming, recording, and overlay"
+license = "MIT"
+authors = ["Kyle Nahrgang"]
+
+[package.metadata.deb]
+maintainer = "Kyle Nahrgang <table-tv@kyle.nahrgang.dev>"
+section = "web"
+depends = "ca-certificates, avahi-daemon, avahi-utils, dumb-init, ffmpeg, nginx, curl, fonts-dejavu-core, stunnel"
+assets = [
+    ["target/release/table-tv-api", "usr/bin/table-tv-api", "755"],
+    ["target/release/ui-dist/**/*", "usr/share/table-tv/ui-dist/", "644"],
+    ["debian/table-tv-start.sh", "usr/lib/table-tv/table-tv-start.sh", "755"],
+    ["debian/nginx.conf", "etc/table-tv/nginx.conf", "644"],
+    ["debian/stunnel-fb.conf", "etc/table-tv/stunnel-fb.conf", "644"],
+    ["debian/mediamtx.yml", "etc/table-tv/mediamtx.yml", "644"],
+    ["debian/env.example", "etc/table-tv/env.example", "644"]
+]
+maintainer-scripts = "debian/"
+
+[package.metadata.deb.systemd-units]
+unit-name = "table-tv"
 
 [dependencies]
 ab_glyph = "0.2"

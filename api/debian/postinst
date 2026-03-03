@@ -1,0 +1,43 @@
+#!/bin/sh
+set -e
+
+# Create data and recordings directories
+mkdir -p /var/lib/table-tv /var/lib/table-tv/recordings
+chown root:root /var/lib/table-tv /var/lib/table-tv/recordings
+chmod 755 /var/lib/table-tv /var/lib/table-tv/recordings
+
+# Create .env from example if it doesn't exist
+if [ ! -f /etc/table-tv/.env ] && [ -f /etc/table-tv/env.example ]; then
+    cp /etc/table-tv/env.example /etc/table-tv/.env
+    chmod 600 /etc/table-tv/.env
+fi
+
+# Download MediaMTX if not present (not in Debian repos)
+MEDIAMTX_VERSION="1.16.3"
+MEDIAMTX_BIN="/usr/lib/table-tv/mediamtx"
+if [ ! -x "$MEDIAMTX_BIN" ]; then
+    ARCH=$(dpkg --print-architecture)
+    case "$ARCH" in
+        amd64) MTX_ARCH="amd64" ;;
+        arm64) MTX_ARCH="arm64" ;;
+        armhf) MTX_ARCH="armv7" ;;
+        i386)  MTX_ARCH="386" ;;
+        *)     MTX_ARCH="amd64" ;;  # fallback
+    esac
+    URL="https://github.com/bluenviron/mediamtx/releases/download/v${MEDIAMTX_VERSION}/mediamtx_v${MEDIAMTX_VERSION}_linux_${MTX_ARCH}.tar.gz"
+    TMPDIR=$(mktemp -d)
+    if command -v wget >/dev/null 2>&1; then
+        wget -qO- "$URL" | tar -xzf - -C "$TMPDIR" mediamtx
+    elif command -v curl >/dev/null 2>&1; then
+        curl -sL "$URL" | tar -xzf - -C "$TMPDIR" mediamtx
+    else
+        echo "Warning: wget/curl not found, MediaMTX not installed. Install manually for RTSP support." >&2
+        rmdir "$TMPDIR" 2>/dev/null || true
+        exit 0
+    fi
+    mv "$TMPDIR/mediamtx" "$MEDIAMTX_BIN"
+    rm -rf "$TMPDIR"
+    chmod 755 "$MEDIAMTX_BIN"
+fi
+
+#DEBHELPER#

@@ -1,0 +1,17 @@
+[Unit]
+Description=Table TV - pool table camera streaming and overlay
+After=network.target avahi-daemon.service
+Wants=avahi-daemon.service
+
+[Service]
+Type=simple
+EnvironmentFile=-/etc/table-tv/.env
+Environment=UI_DIST_PATH=/usr/share/table-tv/ui-dist
+Environment=SQLITE_PATH=/var/lib/table-tv/table-tv.db
+Environment=PORT=8080
+ExecStart=/usr/lib/table-tv/table-tv-start.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
