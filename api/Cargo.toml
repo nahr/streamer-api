@@ -1,5 +1,5 @@
 [package]
-name = "table-tv-api"
+name = "table-tv"
 version = "0.1.0"
 edition = "2021"
 description = "Table TV - pool table camera streaming, recording, and overlay"
@@ -11,7 +11,7 @@ maintainer = "Kyle Nahrgang <table-tv@kyle.nahrgang.dev>"
 section = "web"
 depends = "ca-certificates, avahi-daemon, avahi-utils, dumb-init, ffmpeg, curl, fonts-dejavu-core, stunnel"
 assets = [
-    ["target/release/table-tv-api", "usr/bin/table-tv-api", "755"],
+    ["target/release/table-tv", "usr/bin/table-tv", "755"],
     ["target/release/ui-dist/**/*", "usr/share/table-tv/ui-dist/", "644"],
     ["debian/table-tv-start.sh", "usr/lib/table-tv/table-tv-start.sh", "755"],
     ["debian/stunnel-fb.conf", "etc/table-tv/stunnel-fb.conf", "644"],

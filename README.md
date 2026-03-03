@@ -1,15 +1,17 @@
 # Table TV
 
-A simple app with an API and UI, served together. Runs on Linux with ffmpeg, MediaMTX, stunnel, and Avahi installed as needed.
+ A simple app with an API and UI, served together. Runs on Linux with ffmpeg, MediaMTX, stunnel, and Avahi installed as needed.
 
 ## Quick Start
 
 **Terminal 1 – API:**
+
 ```bash
 cd api && cargo run
 ```
 
 **Terminal 2 – UI:**
+
 ```bash
 cd ui && npm run dev
 ```
@@ -182,6 +184,7 @@ FFmpeg's native RTMPS support often fails when streaming to Facebook Live. Use *
    - Ubuntu/Debian: `sudo apt install stunnel4`
 
 2. **Create stunnel config** (e.g. `stunnel-fb.conf`):
+
    ```
    [fb-live]
    client = yes
@@ -191,11 +194,13 @@ FFmpeg's native RTMPS support often fails when streaming to Facebook Live. Use *
    ```
 
 3. **Run stunnel** before going live:
+
    ```bash
    stunnel stunnel-fb.conf
    ```
 
 4. **Set env and start the API:**
+
    ```bash
    USE_STUNNEL_FOR_RTMPS=1 cargo run
    ```

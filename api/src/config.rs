@@ -169,19 +169,16 @@ impl From<ConfigFile> for AppConfig {
     }
 }
 
-/// Load config from file. Search order: TABLE_TV_CONFIG env, /etc/table-tv/config.toml, ./config.toml, ../config.toml.
+/// Load config from file. Search order: /etc/table-tv/config.toml, ./config.toml, ../config.toml.
 pub fn load() -> AppConfig {
-    let candidates: Vec<std::path::PathBuf> = std::env::var("TABLE_TV_CONFIG")
-        .ok()
-        .map(std::path::PathBuf::from)
-        .into_iter()
-        .chain([
-            std::path::Path::new("/etc/table-tv/config.toml"),
-            std::path::Path::new("./config.toml"),
-            std::path::Path::new("../config.toml"),
-        ]
-        .map(std::path::PathBuf::from))
-        .collect();
+    let candidates: Vec<std::path::PathBuf> = [
+        std::path::Path::new("/etc/table-tv/config.toml"),
+        std::path::Path::new("./config.toml"),
+        std::path::Path::new("../config.toml"),
+    ]
+    .into_iter()
+    .map(std::path::PathBuf::from)
+    .collect();
 
     for path in &candidates {
         if path.exists() {

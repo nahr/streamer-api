@@ -1,14 +1,14 @@
 #!/bin/sh
 set -e
 
-# Config is loaded by table-tv-api from /etc/table-tv/config.toml
+# Config is loaded by table-tv from /etc/table-tv/config.toml
 
 # Start stunnel for Facebook RTMPS when config has use_stunnel_for_rtmps = true
 if [ -f /etc/table-tv/config.toml ] && grep -qE 'use_stunnel_for_rtmps\s*=\s*true' /etc/table-tv/config.toml; then
     export USE_STUNNEL_FOR_RTMPS=1
 fi
 
-# Start MediaMTX (RTSP, Control API, Playback) - must run before table-tv-api
+# Start MediaMTX (RTSP, Control API, Playback) - must run before table-tv
 if [ -x /usr/lib/table-tv/mediamtx ]; then
     /usr/lib/table-tv/mediamtx /etc/table-tv/mediamtx.yml &
 fi
@@ -22,4 +22,4 @@ if [ "$USE_STUNNEL_FOR_RTMPS" = "1" ]; then
 fi
 
 # API on 80: serves UI and /api (ui_dist_path from config)
-exec /usr/bin/table-tv-api
+exec /usr/bin/table-tv
