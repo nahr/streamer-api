@@ -1,5 +1,5 @@
 use axum::{extract::State, routing::get, Router};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::RwLock;
 use tower_http::services::{ServeDir, ServeFile};
@@ -116,10 +116,23 @@ impl ApiServer {
             // .layer(TraceLayer::new_for_http())
             .with_state(app_state);
 
-        if Path::new("ui-dist").exists() {
-            let serve_dir = ServeDir::new("ui-dist")
+        let ui_dist = std::env::var("UI_DIST_PATH")
+            .ok()
+            .map(PathBuf::from)
+            .filter(|p| p.exists())
+            .or_else(|| {
+                ["ui-dist", "ui/dist", "../ui/dist"]
+                    .iter()
+                    .map(Path::new)
+                    .find(|p| p.exists())
+                    .map(Path::to_path_buf)
+            });
+        if let Some(ref ui_dist) = ui_dist {
+            let path = ui_dist.to_string_lossy();
+            tracing::info!(path = %path, "serving UI from");
+            let serve_dir = ServeDir::new(ui_dist)
                 .append_index_html_on_directories(true)
-                .fallback(ServeFile::new("ui-dist/index.html"));
+                .fallback(ServeFile::new(ui_dist.join("index.html")));
             // Use fallback so API routes (/api/*) are matched first; static files only for unmatched paths
             app = app.fallback_service(serve_dir);
         }
