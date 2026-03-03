@@ -1,0 +1,15 @@
+# MediaMTX config for Table TV. Paths are added dynamically via Control API.
+# API must be enabled for the Table TV API to sync camera paths.
+api: yes
+apiAddress: :9997
+
+# RTSP server for camera streams (default port 8554)
+rtsp: yes
+rtspAddress: :8554
+
+# Playback server for downloading recordings
+playback: yes
+playbackAddress: :9996
+
+# Logging
+logLevel: info

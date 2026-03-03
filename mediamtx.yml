@@ -1,0 +1,16 @@
+# MediaMTX config for test RTSP stream and Table TV.
+# Run: mediamtx mediamtx.yml
+# Then: ffmpeg -re -f lavfi -i "testsrc=size=1280x720:rate=30" -c:v libx264 -pix_fmt yuv420p -preset ultrafast -f rtsp rtsp://localhost:8554/test
+#
+# API: enables Table TV to sync camera paths for rolling recording and proxy.
+
+api: yes
+apiAddress: :9997
+
+# Playback server for downloading recordings
+playback: yes
+playbackAddress: :9996
+
+paths:
+  test:
+    source: publisher

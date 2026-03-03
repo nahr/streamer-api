@@ -1,7 +1,5 @@
 .env
 config.toml
-mediamtx.yml
 .DS_Store
 *.mp4
 recordings/
-stunnel-fb.conf

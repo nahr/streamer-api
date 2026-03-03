@@ -1,0 +1,10 @@
+# MediaMTX config for Table TV. Paths are added dynamically via Control API.
+api: yes
+apiAddress: :9997
+rtsp: yes
+rtspAddress: :8554
+playback: yes
+playbackAddress: :9996
+pathDefaults:
+  recordPath: /var/lib/table-tv/recordings/%path/%Y-%m-%d_%H-%M-%S-%f
+logLevel: info

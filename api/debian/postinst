@@ -40,4 +40,9 @@ if [ ! -x "$MEDIAMTX_BIN" ]; then
     chmod 755 "$MEDIAMTX_BIN"
 fi
 
+# Reload avahi to pick up the new Table TV service advertisement
+if [ -d /etc/avahi/services ]; then
+    invoke-rc.d avahi-daemon reload 2>/dev/null || systemctl reload avahi-daemon 2>/dev/null || true
+fi
+
 #DEBHELPER#
