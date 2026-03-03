@@ -60,6 +60,7 @@ export function Match() {
   const [streamError, setStreamError] = useState(false)
   const [previewLoaded, setPreviewLoaded] = useState(false)
   const [downloadingGame, setDownloadingGame] = useState(null)
+  const [downloadError, setDownloadError] = useState('')
 
   useEffect(() => {
     if (!id) return
@@ -308,6 +309,11 @@ export function Match() {
       <Button startIcon={<ArrowBackIcon />} onClick={() => navigate('/')} sx={{ mb: 2 }}>
         Back to Home
       </Button>
+      {downloadError && (
+        <Alert severity="error" sx={{ mb: 2 }} onClose={() => setDownloadError('')}>
+          {downloadError}
+        </Alert>
+      )}
       <Paper sx={{ p: 3 }}>
         <Box display="flex" alignItems="center" gap={2} sx={{ mb: 2 }}>
           <Typography variant="h4" component="h1">
@@ -480,6 +486,7 @@ export function Match() {
                         disabled={isDownloading}
                         onLoadingStart={() => setDownloadingGame(i)}
                         onLoadingEnd={() => setDownloadingGame(null)}
+                        onError={(err) => setDownloadError(err.message || 'Download failed')}
                         sx={{ flex: { xs: '1 1 auto', sm: '0 0 auto' } }}
                       />
                     )}

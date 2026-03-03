@@ -8,7 +8,8 @@ import { downloadGameRecording, shareGameRecording, canShareVideo } from '../api
 
 /**
  * Button to download a game recording. On mobile (when Web Share API supports files),
- * shows a menu with "Save to Photos" and "Save to Files". Otherwise, downloads directly.
+ * shows a menu with "Save to Photos" and "Save to Files". Both use the share sheet on
+ * mobile since Safari ignores the download attribute for blob URLs.
  *
  * @param {Object} props
  * @param {string} props.cameraId
@@ -18,6 +19,7 @@ import { downloadGameRecording, shareGameRecording, canShareVideo } from '../api
  * @param {boolean} [props.disabled]
  * @param {() => void} [props.onLoadingStart]
  * @param {() => void} [props.onLoadingEnd]
+ * @param {(err: Error) => void} [props.onError] - Called when download/share fails
  * @param {string} [props.label] - Button label, default "Download"
  * @param {'text'|'outlined'|'contained'} [props.variant] - Button variant
  * @param {Object} [props.sx] - MUI sx prop for the button
@@ -30,6 +32,7 @@ export function DownloadRecordingButton({
   disabled = false,
   onLoadingStart,
   onLoadingEnd,
+  onError,
   label = 'Download',
   variant,
   sx,
@@ -46,7 +49,10 @@ export function DownloadRecordingButton({
     try {
       await fn()
     } catch (err) {
+      // Don't surface AbortError - user cancelled the share sheet
+      if (err?.name === 'AbortError') return
       console.error('Download/share failed', err)
+      onError?.(err)
     } finally {
       setLoading(false)
       onLoadingEnd?.()
@@ -54,8 +60,11 @@ export function DownloadRecordingButton({
     }
   }
 
-  const handleDownload = () => runAction(() => downloadGameRecording(cameraId, getStartMs(), durationSec, filename))
+  // On mobile, both options use share (Safari ignores download attribute for blob URLs)
   const handleShare = () => runAction(() => shareGameRecording(cameraId, getStartMs(), durationSec, filename))
+  const handleDownload = showMenu
+    ? handleShare
+    : () => runAction(() => downloadGameRecording(cameraId, getStartMs(), durationSec, filename))
 
   const isDisabled = disabled || loading
 

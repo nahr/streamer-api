@@ -82,6 +82,7 @@ export function Camera() {
   const [cameraMatches, setCameraMatches] = useState([])
   const [downloadingGame, setDownloadingGame] = useState(null)
   const [downloadingRecent, setDownloadingRecent] = useState(null)
+  const [downloadError, setDownloadError] = useState('')
   const [startPracticeLoading, setStartPracticeLoading] = useState(false)
 
   useEffect(() => {
@@ -539,6 +540,7 @@ export function Camera() {
                     disabled={downloadingRecent !== null}
                     onLoadingStart={() => setDownloadingRecent(sec)}
                     onLoadingEnd={() => setDownloadingRecent(null)}
+                    onError={(err) => setDownloadError(err.message || 'Download failed')}
                     label={`${sec}s`}
                     variant="outlined"
                   />
@@ -547,6 +549,11 @@ export function Camera() {
             </Box>
 
             <Box sx={{ mt: 3, pt: 2, borderTop: 1, borderColor: 'divider' }}>
+              {downloadError && (
+                <Alert severity="error" sx={{ mb: 2 }} onClose={() => setDownloadError('')}>
+                  {downloadError}
+                </Alert>
+              )}
               {startError && !startDialogOpen && (
                 <Alert severity="error" sx={{ mb: 2 }} onClose={() => setStartError('')}>
                   {startError}
@@ -680,6 +687,7 @@ export function Camera() {
                                 disabled={isDownloading}
                                 onLoadingStart={() => setDownloadingGame(downloadKey)}
                                 onLoadingEnd={() => setDownloadingGame(null)}
+                                onError={(err) => setDownloadError(err.message || 'Download failed')}
                               />
                             )}
                           </Box>

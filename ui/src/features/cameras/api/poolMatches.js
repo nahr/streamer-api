@@ -145,16 +145,20 @@ export async function downloadGameRecording(cameraId, startMs, durationSec, file
     throw new Error(text || 'Failed to download recording')
   }
   const blob = await res.blob()
+  const blobUrl = URL.createObjectURL(blob)
   const a = document.createElement('a')
-  a.href = URL.createObjectURL(blob)
+  a.href = blobUrl
   a.download = filename
   a.click()
-  URL.revokeObjectURL(a.href)
+  // Delay revoke: mobile Safari may need the URL to stay valid briefly
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 500)
 }
 
 /**
  * Share recording via the native share sheet (e.g. "Save to Photos" on iOS).
  * Use when the user wants to save to Photos instead of Files.
+ * On mobile, use this for both "Save to Photos" and "Save to Files" since
+ * Safari ignores the download attribute for blob URLs.
  * @param {string} cameraId
  * @param {number} startMs - Start time in milliseconds
  * @param {number} durationSec - Duration in seconds
@@ -168,13 +172,24 @@ export async function shareGameRecording(cameraId, startMs, durationSec, filenam
     const text = await res.text()
     throw new Error(text || 'Failed to download recording')
   }
-  const blob = await res.blob()
+  // Use arrayBuffer to ensure the full file is in memory before sharing.
+  // iOS Safari can fail silently with lazy blobs from response.blob().
+  const arrayBuffer = await res.arrayBuffer()
+  const blob = new Blob([arrayBuffer], { type: 'video/mp4' })
   const file = new File([blob], filename, { type: 'video/mp4' })
   if (!navigator.canShare({ files: [file] })) {
-    throw new Error('Sharing this file is not supported')
+    throw new Error('Sharing this file is not supported on this device')
   }
-  // iOS cannot share text and files together; share files only
-  await navigator.share({ files: [file] })
+  try {
+    // iOS cannot share text and files together; share files only
+    await navigator.share({ files: [file] })
+  } catch (err) {
+    const msg = err?.message?.toLowerCase?.() || ''
+    if (msg.includes('too large') || msg.includes('size')) {
+      throw new Error('Video may be too large. Try a shorter clip.')
+    }
+    throw err
+  }
 }
 
 /**
