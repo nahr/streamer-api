@@ -1,11 +1,10 @@
 use axum::{extract::State, routing::get, Router};
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::RwLock;
 use tower_http::services::{ServeDir, ServeFile};
-use tower_http::trace::TraceLayer;
 
-use crate::api::{auth, camera, facebook, info, pool_match, settings, user};
+use crate::api::{auth, camera, config, facebook, info, pool_match, settings, user};
 use crate::db::Db;
 use crate::error::ApiError;
 use crate::video::{self, OverlayState};
@@ -42,7 +41,10 @@ impl ApiServer {
         let cfg = crate::config::config();
         let auth0_ready = cfg.auth0_domain.as_ref().map_or(false, |s| !s.is_empty())
             && (cfg.auth0_audience.as_ref().map_or(false, |s| !s.is_empty())
-                || cfg.auth0_client_id.as_ref().map_or(false, |s| !s.is_empty()));
+                || cfg
+                    .auth0_client_id
+                    .as_ref()
+                    .map_or(false, |s| !s.is_empty()));
         let jwks = auth0_ready.then(|| {
             Arc::new(auth::JwksCache::new(
                 cfg.auth0_domain.as_deref().unwrap_or(""),
@@ -72,8 +74,12 @@ impl ApiServer {
                             return;
                         }
                         false => {
-                            tracing::debug!("MediaMTX sync failed, retrying in {}s", RETRY_DELAY_SECS);
-                            tokio::time::sleep(tokio::time::Duration::from_secs(RETRY_DELAY_SECS)).await;
+                            tracing::debug!(
+                                "MediaMTX sync failed, retrying in {}s",
+                                RETRY_DELAY_SECS
+                            );
+                            tokio::time::sleep(tokio::time::Duration::from_secs(RETRY_DELAY_SECS))
+                                .await;
                         }
                     }
                 }
@@ -107,6 +113,7 @@ impl ApiServer {
 
         let mut app = Router::new()
             .route("/api/hello", get(hello_world))
+            .merge(config::routes())
             .merge(auth::routes())
             .merge(camera::routes())
             .merge(pool_match::routes())
@@ -117,7 +124,9 @@ impl ApiServer {
             // .layer(TraceLayer::new_for_http())
             .with_state(app_state);
 
-        let ui_dist = cfg.ui_dist_path.clone()
+        let ui_dist = cfg
+            .ui_dist_path
+            .clone()
             .filter(|p| p.exists())
             .or_else(|| {
                 ["ui-dist", "ui/dist", "../ui/dist"]
@@ -128,12 +137,10 @@ impl ApiServer {
             })
             .or_else(|| {
                 // When running release binary from target/release/, ui-dist is next to the exe
-                std::env::current_exe()
-                    .ok()
-                    .and_then(|exe| {
-                        let candidate = exe.parent()?.join("ui-dist");
-                        candidate.exists().then_some(candidate)
-                    })
+                std::env::current_exe().ok().and_then(|exe| {
+                    let candidate = exe.parent()?.join("ui-dist");
+                    candidate.exists().then_some(candidate)
+                })
             });
         if let Some(ref ui_dist) = ui_dist {
             let path = ui_dist.to_string_lossy();

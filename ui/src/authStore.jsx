@@ -20,14 +20,13 @@ export async function fetchAuthMe(accessToken) {
 
 const AuthContext = createContext(null)
 
-// When true, use ID token instead of access token (for when audience causes 403)
-const useIdToken = import.meta.env.AUTH0_SKIP_AUDIENCE === 'true'
-
 /**
  * Provider that wraps Auth0 and fetches our user info (including isAdmin) from the backend.
  * Must be used inside Auth0Provider.
+ * @param {{ children: React.ReactNode, skipAudience?: boolean }} props
  */
-export function AuthProvider({ children }) {
+export function AuthProvider({ children, skipAudience = false }) {
+  const useIdToken = skipAudience
   const { isAuthenticated, getAccessTokenSilently, getIdTokenClaims, logout: auth0Logout } = useAuth0()
   const [user, setUser] = useState(null)
   const [loading, setLoading] = useState(true)
@@ -54,7 +53,7 @@ export function AuthProvider({ children }) {
     } finally {
       setLoading(false)
     }
-  }, [isAuthenticated, getAccessTokenSilently, getIdTokenClaims])
+  }, [isAuthenticated, getAccessTokenSilently, getIdTokenClaims, useIdToken])
 
   useEffect(() => {
     loadUser()
@@ -66,7 +65,6 @@ export function AuthProvider({ children }) {
       setTokenGetter(null)
       return
     }
-    const useIdToken = import.meta.env.AUTH0_SKIP_AUDIENCE === 'true'
     setTokenGetter(async () => {
       try {
         if (useIdToken) {
@@ -79,7 +77,7 @@ export function AuthProvider({ children }) {
       }
     })
     return () => setTokenGetter(null)
-  }, [isAuthenticated, getAccessTokenSilently, getIdTokenClaims])
+  }, [isAuthenticated, getAccessTokenSilently, getIdTokenClaims, useIdToken])
 
   const logout = useCallback(() => {
     setUser(null)

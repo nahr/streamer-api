@@ -1,4 +1,5 @@
 pub mod auth;
+mod config;
 mod camera;
 mod facebook;
 mod info;

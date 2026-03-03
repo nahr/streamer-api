@@ -112,19 +112,34 @@ fn draw_match_to_rgba(img: &mut RgbaImage, overlay: &MatchOverlay, font: &FontRe
         &overlay.player_one.name,
     );
     if let Some(ref r) = overlay.player_one.rating {
-        draw_text_mut(img, gray, px, p1_rating_y, ab_glyph::PxScale::from(scale_sm), font, r);
+        draw_text_mut(
+            img,
+            gray,
+            px,
+            p1_rating_y,
+            ab_glyph::PxScale::from(scale_sm),
+            font,
+            r,
+        );
     }
 
     let score_scale = 22.0f32;
     let s1 = overlay.player_one.games_won.to_string();
     let s2 = overlay.player_two.games_won.to_string();
-    let race_line2 = format!("{}/{}", overlay.player_one.race_to, overlay.player_two.race_to);
+    let race_line2 = format!(
+        "{}/{}",
+        overlay.player_one.race_to, overlay.player_two.race_to
+    );
 
-    let (s1_w, s1_h) = imageproc::drawing::text_size(ab_glyph::PxScale::from(score_scale), font, &s1);
-    let (race2_w, race1_h) = imageproc::drawing::text_size(ab_glyph::PxScale::from(scale_sm), font, &race_line2);
+    let (s1_w, s1_h) =
+        imageproc::drawing::text_size(ab_glyph::PxScale::from(score_scale), font, &s1);
+    let (race2_w, race1_h) =
+        imageproc::drawing::text_size(ab_glyph::PxScale::from(scale_sm), font, &race_line2);
     let race_line1 = "race to";
-    let (race1_w, _) = imageproc::drawing::text_size(ab_glyph::PxScale::from(scale_sm), font, race_line1);
-    let (s2_w, s2_h) = imageproc::drawing::text_size(ab_glyph::PxScale::from(score_scale), font, &s2);
+    let (race1_w, _) =
+        imageproc::drawing::text_size(ab_glyph::PxScale::from(scale_sm), font, race_line1);
+    let (s2_w, s2_h) =
+        imageproc::drawing::text_size(ab_glyph::PxScale::from(score_scale), font, &s2);
 
     let circle_d = 32i32;
     let circle_r = circle_d / 2;
@@ -146,8 +161,24 @@ fn draw_match_to_rgba(img: &mut RgbaImage, overlay: &MatchOverlay, font: &FontRe
     let score_y = center_y - s1_h as i32 / 2 - 3;
     let s1_x = s1_cx - s1_w as i32 / 2;
     let s2_x = s2_cx - s2_w as i32 / 2;
-    draw_text_mut(img, white, s1_x, score_y, ab_glyph::PxScale::from(score_scale), font, &s1);
-    draw_text_mut(img, white, s2_x, center_y - s2_h as i32 / 2 - 3, ab_glyph::PxScale::from(score_scale), font, &s2);
+    draw_text_mut(
+        img,
+        white,
+        s1_x,
+        score_y,
+        ab_glyph::PxScale::from(score_scale),
+        font,
+        &s1,
+    );
+    draw_text_mut(
+        img,
+        white,
+        s2_x,
+        center_y - s2_h as i32 / 2 - 3,
+        ab_glyph::PxScale::from(score_scale),
+        font,
+        &s2,
+    );
 
     let race_gap = 2i32;
     let race_block_h = race1_h as i32 + race_gap + race1_h as i32;
@@ -155,14 +186,50 @@ fn draw_match_to_rgba(img: &mut RgbaImage, overlay: &MatchOverlay, font: &FontRe
     let race_y2 = race_y1 + race1_h as i32 + race_gap;
     let race_line1_x = race_x + (race_w as i32 - race1_w as i32) / 2;
     let race_line2_x = race_x + (race_w as i32 - race2_w as i32) / 2;
-    draw_text_mut(img, gray, race_line1_x, race_y1, ab_glyph::PxScale::from(scale_sm), font, race_line1);
-    draw_text_mut(img, gray, race_line2_x, race_y2, ab_glyph::PxScale::from(scale_sm), font, &race_line2);
+    draw_text_mut(
+        img,
+        gray,
+        race_line1_x,
+        race_y1,
+        ab_glyph::PxScale::from(scale_sm),
+        font,
+        race_line1,
+    );
+    draw_text_mut(
+        img,
+        gray,
+        race_line2_x,
+        race_y2,
+        ab_glyph::PxScale::from(scale_sm),
+        font,
+        &race_line2,
+    );
 
-    let (p2_w, _) = imageproc::drawing::text_size(ab_glyph::PxScale::from(scale), font, &overlay.player_two.name);
+    let (p2_w, _) = imageproc::drawing::text_size(
+        ab_glyph::PxScale::from(scale),
+        font,
+        &overlay.player_two.name,
+    );
     let p2_x = (w - p2_w as i32 - px).max(center_end + 16);
-    draw_text_mut(img, white, p2_x, p1_name_y, ab_glyph::PxScale::from(scale), font, &overlay.player_two.name);
+    draw_text_mut(
+        img,
+        white,
+        p2_x,
+        p1_name_y,
+        ab_glyph::PxScale::from(scale),
+        font,
+        &overlay.player_two.name,
+    );
     if let Some(ref r) = overlay.player_two.rating {
-        draw_text_mut(img, gray, p2_x, p1_rating_y, ab_glyph::PxScale::from(scale_sm), font, r);
+        draw_text_mut(
+            img,
+            gray,
+            p2_x,
+            p1_rating_y,
+            ab_glyph::PxScale::from(scale_sm),
+            font,
+            r,
+        );
     }
 }
 
@@ -174,7 +241,6 @@ fn draw_practice_to_rgba(img: &mut RgbaImage, overlay: &MatchOverlay, font: &Fon
 
     let scale = 20.0f32;
     let white = Rgba([255u8, 255, 255, 255]);
-    let gray = Rgba([204u8, 204, 204, 255]);
     let px = 16i32;
     let center_y = h / 2;
     let line_h = 24i32;
@@ -190,7 +256,8 @@ fn draw_practice_to_rgba(img: &mut RgbaImage, overlay: &MatchOverlay, font: &Fon
         font,
         &left_text,
     );
-    let (right_w, _) = imageproc::drawing::text_size(ab_glyph::PxScale::from(scale), font, &right_text);
+    let (right_w, _) =
+        imageproc::drawing::text_size(ab_glyph::PxScale::from(scale), font, &right_text);
     draw_text_mut(
         img,
         white,
@@ -233,7 +300,11 @@ pub fn render_overlay_png(path: &std::path::Path, overlay: Option<&MatchOverlay>
 }
 
 /// Restore overlay from any active match in the database. Call at server startup.
-pub fn restore_overlay_from_db(db: &Db, overlay_state: &OverlayState, rtmp_processes: &rtmp::RtmpState) {
+pub fn restore_overlay_from_db(
+    db: &Db,
+    overlay_state: &OverlayState,
+    rtmp_processes: &rtmp::RtmpState,
+) {
     let cameras = db.list_cameras().ok().unwrap_or_default();
     for camera in cameras {
         if let Some(ref id) = camera.id {
@@ -251,7 +322,11 @@ pub fn restore_overlay_from_db(db: &Db, overlay_state: &OverlayState, rtmp_proce
 }
 
 /// Spawn a background task that periodically syncs overlay PNG with DB.
-pub fn spawn_overlay_refresh_task(db: Db, overlay_state: OverlayState, _rtmp_processes: rtmp::RtmpState) {
+pub fn spawn_overlay_refresh_task(
+    db: Db,
+    overlay_state: OverlayState,
+    _rtmp_processes: rtmp::RtmpState,
+) {
     std::thread::spawn(move || {
         let interval = std::time::Duration::from_secs(2);
         loop {
