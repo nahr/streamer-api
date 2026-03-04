@@ -70,6 +70,10 @@ The first user to log in becomes an admin.
 
 6. **Wrong client ID** – If Auth0 receives a different client ID than in table-tv.config: ensure the correct table-tv.config is used (project root, `api/`, or `/etc/table-tv/`); restart the dev server. In dev mode, the console logs `[Auth0] Client ID loaded: xxxxxxxx...` so you can verify.
 
+### "Facebook User" or "Google User" instead of real name
+
+When the app shows a generic name instead of your real name, the JWT lacks profile claims. The backend tries Auth0's userinfo endpoint, but this can fail (rate limits 429, or when using `skip_audience` the access token may not be available). **The recommended fix is the Auth0 Action below** – it adds profile data to the ID token so userinfo is never needed.
+
 ### Auth0 claims (username, email, profile picture)
 
 The app requests `scope: 'openid profile email'`, which includes standard OIDC claims: `name`, `nickname`, `email`, `picture`. For social logins (Facebook, Google), these may be empty if the identity provider doesn’t share them.

@@ -4,13 +4,18 @@ import { setTokenGetter } from './apiClient.js'
 
 /**
  * Fetches current user from backend (validates token, syncs to DB, returns isAdmin).
- * @param {string} accessToken - Bearer token from Auth0
+ * Sends both ID token (for validation) and access token (for userinfo when JWT lacks profile).
+ * Auth0's userinfo endpoint requires an access token; ID tokens are rejected.
+ * @param {string} idToken - Bearer token (ID token for validation)
+ * @param {string} [accessToken] - Optional access token for userinfo (needed for Facebook/social when skipAudience)
  * @returns {Promise<{ sub: string, email: string, name: string, picture?: string, is_admin: boolean }>}
  */
-export async function fetchAuthMe(accessToken) {
-  const res = await fetch('/api/auth/me', {
-    headers: { Authorization: `Bearer ${accessToken}` },
-  })
+export async function fetchAuthMe(idToken, accessToken) {
+  const headers = {
+    Authorization: `Bearer ${idToken}`,
+    ...(accessToken && accessToken !== idToken && { 'X-Auth0-Access-Token': accessToken }),
+  }
+  const res = await fetch('/api/auth/me', { headers })
   if (!res.ok) {
     const text = await res.text()
     throw new Error(text || 'Failed to fetch user')
@@ -41,11 +46,13 @@ export function AuthProvider({ children, skipAudience = false }) {
     setLoading(true)
     setError(null)
     try {
-      const token = useIdToken
-        ? (await getIdTokenClaims())?.__raw
-        : await getAccessTokenSilently()
+      const idToken = (await getIdTokenClaims())?.__raw
+      // Use cache only – avoid forcing refresh; user re-authenticates only when cached token expires
+      const accessToken = await getAccessTokenSilently({ cacheMode: 'cache' }).catch(() => null)
+      const token = useIdToken ? idToken : accessToken
       if (!token) throw new Error('No token available')
-      const data = await fetchAuthMe(token)
+      // When skipAudience, send access token for userinfo (Auth0 rejects ID tokens)
+      const data = await fetchAuthMe(token, useIdToken ? accessToken : null)
       setUser(data)
     } catch (err) {
       setError(err.message)

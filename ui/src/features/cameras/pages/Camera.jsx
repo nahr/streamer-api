@@ -661,35 +661,38 @@ export function Camera() {
                             component="li"
                             sx={{
                               display: 'flex',
-                              alignItems: 'center',
-                              gap: 2,
+                              flexDirection: { xs: 'column', sm: 'row' },
+                              alignItems: { xs: 'flex-start', sm: 'center' },
+                              gap: { xs: 1, sm: 2 },
                               py: 1,
                               borderBottom: i < match.score_history.length - 1 ? 1 : 0,
                               borderColor: 'divider',
                             }}
                           >
-                            <Typography variant="body2" color="text.secondary" sx={{ minWidth: 280 }}>
+                            <Typography variant="body2" color="text.secondary" sx={{ minWidth: { xs: 'auto', sm: 280 } }}>
                               {formatTime(startMs, 'withSeconds')} – {formatTime(entry.timestamp, 'withSeconds')}
                               {' · '}
                               {formatDuration(entry.timestamp - startMs)}
                             </Typography>
-                            <Typography variant="body1" sx={{ flex: 1 }}>
-                              {match.match_type === 'practice'
-                                ? `Rack ${rackNumber}`
-                                : `${player} won game ${gameNumber}, ${entry.player_one_games_won} – ${entry.player_two_games_won}`}
-                            </Typography>
-                            {match.camera_id && isRecordingAvailable(entry.timestamp, recordDeleteAfter) && (
-                              <DownloadRecordingButton
-                                cameraId={match.camera_id}
-                                startMs={downloadStartMs}
-                                durationSec={durationSec}
-                                filename={formatRecordingFilename(startMs, match.match_type, match.match_type === 'practice' ? rackNumber : gameNumber)}
-                                disabled={isDownloading}
-                                onLoadingStart={() => setDownloadingGame(downloadKey)}
-                                onLoadingEnd={() => setDownloadingGame(null)}
-                                onError={(err) => setDownloadError(err.message || 'Download failed')}
-                              />
-                            )}
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: { xs: 'none', sm: 1 } }}>
+                              <Typography variant="body1" sx={{ flex: 1 }}>
+                                {match.match_type === 'practice'
+                                  ? `Rack ${rackNumber}`
+                                  : `${player} won game ${gameNumber}, ${entry.player_one_games_won} – ${entry.player_two_games_won}`}
+                              </Typography>
+                              {match.camera_id && isRecordingAvailable(entry.timestamp, recordDeleteAfter) && (
+                                <DownloadRecordingButton
+                                  cameraId={match.camera_id}
+                                  startMs={downloadStartMs}
+                                  durationSec={durationSec}
+                                  filename={formatRecordingFilename(startMs, match.match_type, match.match_type === 'practice' ? rackNumber : gameNumber)}
+                                  disabled={isDownloading}
+                                  onLoadingStart={() => setDownloadingGame(downloadKey)}
+                                  onLoadingEnd={() => setDownloadingGame(null)}
+                                  onError={(err) => setDownloadError(err.message || 'Download failed')}
+                                />
+                              )}
+                            </Box>
                           </Box>
                         )
                       })}

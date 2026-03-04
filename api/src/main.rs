@@ -11,8 +11,9 @@ async fn main() -> Result<(), crate::error::ApiError> {
     println!("[table-tv] main: starting");
     tracing_subscriber::registry()
         .with(
-            EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| EnvFilter::new("debug,tower_http=debug")),
+            EnvFilter::try_from_default_env().unwrap_or_else(|_| {
+                EnvFilter::new("debug,tower_http=debug,reqwest=warn,hyper=warn,hyper_util=warn")
+            }),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();

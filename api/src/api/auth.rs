@@ -17,6 +17,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::RwLock;
 
 use crate::api::AppState;
+use crate::db::Db;
 use crate::error::ApiError;
 
 /// Response from Auth0 /userinfo endpoint.
@@ -265,6 +266,19 @@ fn name_from_claims(claims: &Auth0Claims) -> String {
         })
 }
 
+/// True when the name is a generic fallback (e.g. "Facebook User") - treat as broken, retry userinfo.
+fn is_fallback_name(name: &str, sub: &str) -> bool {
+    let n = name.trim();
+    if n.is_empty() {
+        return true;
+    }
+    if matches!(n, "Facebook User" | "Google User" | "User") {
+        return true;
+    }
+    let provider = sub.split('|').next().unwrap_or(sub);
+    n == provider
+}
+
 /// True when JWT has no profile data (name, email, etc.) - used to decide whether to fetch userinfo.
 fn used_profile_fallback(claims: &Auth0Claims) -> bool {
     let has_name = claims.name.as_ref().map_or(false, |s| !s.is_empty());
@@ -291,10 +305,31 @@ async fn fetch_userinfo(domain: &str, token: &str) -> Result<UserInfoResponse, A
         .send()
         .await
         .map_err(|e| ApiError::Auth0ClientError(format!("Failed to fetch userinfo: {}", e)))?;
-    if !res.status().is_success() {
+    let status = res.status();
+    if !status.is_success() {
+        if status == reqwest::StatusCode::TOO_MANY_REQUESTS {
+            let headers: Vec<_> = res
+                .headers()
+                .iter()
+                .map(|(name, value)| {
+                    format!(
+                        "{}: {}",
+                        name.as_str(),
+                        value.to_str().unwrap_or("(invalid)")
+                    )
+                })
+                .collect();
+            tracing::warn!(headers = ?headers, "userinfo 429: response headers");
+        }
+        let body = res.text().await.unwrap_or_default();
         return Err(ApiError::Auth0ClientError(format!(
-            "Userinfo returned {}",
-            res.status()
+            "Userinfo returned {}: {}",
+            status,
+            if body.is_empty() {
+                "(no body)".to_string()
+            } else {
+                body.chars().take(200).collect::<String>()
+            }
         )));
     }
     res.json()
@@ -363,9 +398,16 @@ where
         let token = token_from_parts(parts).ok_or(ApiError::InvalidCredentials)?;
 
         let claims = validate_token(jwks, &token, &audiences, &issuer).await?;
+        let access_token = parts
+            .headers
+            .get(X_AUTH0_ACCESS_TOKEN)
+            .and_then(|v| v.to_str().ok())
+            .filter(|s| !s.is_empty());
         let (name, email, picture) =
-            resolve_profile(&claims, &token, &domain).await;
-        let user = app_state.db.upsert_user(claims.sub.clone(), email)?;
+            resolve_profile(&app_state.db, &claims, &token, access_token, &domain, false).await;
+        let user = app_state
+            .db
+            .upsert_user(claims.sub.clone(), email, Some(name.clone()), picture.clone())?;
 
         Ok(AuthenticatedUser {
             sub: user.auth0_sub,
@@ -414,46 +456,89 @@ where
     }
 }
 
-/// Resolve name, email, picture from claims, optionally enriching from Auth0 userinfo when JWT lacks profile.
+/// Resolve name, email, picture from claims. Uses DB cache when JWT lacks profile; only calls Auth0 userinfo on cache miss.
+/// userinfo_token: use this for the userinfo call when present (Auth0 requires access token; ID tokens are rejected).
+/// use_userinfo: when false, skip userinfo fetch (use cache or fallback only).
 async fn resolve_profile(
+    db: &Db,
     claims: &Auth0Claims,
-    token: &str,
+    bearer_token: &str,
+    userinfo_token: Option<&str>,
     domain: &str,
+    use_userinfo: bool,
 ) -> (String, String, Option<String>) {
     let mut email = email_from_claims(claims);
     let mut name = name_from_claims(claims);
     let mut picture = claims.picture.clone().filter(|s| !s.is_empty());
 
-    if used_profile_fallback(claims) {
-        if let Ok(userinfo) = fetch_userinfo(domain, token).await {
-            if let Some(n) = userinfo
-                .name
-                .filter(|s| !s.is_empty())
-                .or_else(|| {
-                    let g = userinfo.given_name.filter(|s| !s.is_empty());
-                    let f = userinfo.family_name.filter(|s| !s.is_empty());
-                    match (g, f) {
-                        (Some(gg), Some(ff)) => Some(format!("{} {}", gg, ff)),
-                        (Some(gg), None) => Some(gg),
-                        (None, Some(ff)) => Some(ff),
-                        (None, None) => None,
-                    }
-                })
-                .or_else(|| userinfo.nickname.filter(|s| !s.is_empty()))
-            {
-                name = n;
+    // Check DB cache first (avoids Auth0 userinfo rate limits)
+    let cached = db.find_user_by_sub(&claims.sub).ok().flatten();
+    let has_cached_profile = cached.as_ref().and_then(|c| c.name.as_ref()).map_or(false, |s| {
+        !s.is_empty() && !is_fallback_name(s, &claims.sub)
+    });
+
+    if has_cached_profile {
+        let c = cached.unwrap();
+        name = c.name.unwrap();
+        email = c.email;
+        if let Some(p) = c.picture.filter(|s| !s.is_empty()) {
+            picture = Some(p);
+        }
+        return (name, email, picture);
+    }
+
+    // Cache miss, stored values None, or fallback name (e.g. "Facebook User"): fetch from Auth0 at login when allowed
+    let needs_userinfo = used_profile_fallback(claims)
+        || cached.as_ref().map_or(false, |c| {
+            c.name.as_ref()
+                .map_or(true, |s| s.is_empty() || is_fallback_name(s, &claims.sub))
+        });
+    if use_userinfo && needs_userinfo {
+        let has_access_token = userinfo_token.is_some();
+        let token_for_userinfo = userinfo_token.unwrap_or(bearer_token);
+        match fetch_userinfo(domain, token_for_userinfo).await {
+            Ok(userinfo) => {
+                if let Some(n) = userinfo
+                    .name
+                    .filter(|s| !s.is_empty())
+                    .or_else(|| {
+                        let g = userinfo.given_name.filter(|s| !s.is_empty());
+                        let f = userinfo.family_name.filter(|s| !s.is_empty());
+                        match (g, f) {
+                            (Some(gg), Some(ff)) => Some(format!("{} {}", gg, ff)),
+                            (Some(gg), None) => Some(gg),
+                            (None, Some(ff)) => Some(ff),
+                            (None, None) => None,
+                        }
+                    })
+                    .or_else(|| userinfo.nickname.filter(|s| !s.is_empty()))
+                {
+                    name = n;
+                }
+                if let Some(e) = userinfo.email.filter(|s| !s.is_empty()) {
+                    email = e;
+                }
+                if let Some(p) = userinfo.picture.filter(|s| !s.is_empty()) {
+                    picture = Some(p);
+                }
             }
-            if let Some(e) = userinfo.email.filter(|s| !s.is_empty()) {
-                email = e;
-            }
-            if let Some(p) = userinfo.picture.filter(|s| !s.is_empty()) {
-                picture = Some(p);
+            Err(e) => {
+                tracing::warn!(
+                    sub = %claims.sub,
+                    has_access_token = has_access_token,
+                    error = %e,
+                    "userinfo fetch failed; using provider fallback (e.g. Facebook User). \
+                     If has_access_token=false, ensure client sends X-Auth0-Access-Token."
+                );
             }
         }
     }
 
     (name, email, picture)
 }
+
+/// Header sent by client when using skipAudience: access token for Auth0 userinfo (ID tokens are rejected).
+const X_AUTH0_ACCESS_TOKEN: &str = "x-auth0-access-token";
 
 /// GET /api/auth/me - Validate Bearer token, sync user to DB, return user info.
 pub async fn auth_me(
@@ -472,9 +557,18 @@ pub async fn auth_me(
         .next()
         .ok_or(ApiError::InvalidCredentials)?;
 
+    let access_token = req
+        .headers()
+        .get(X_AUTH0_ACCESS_TOKEN)
+        .and_then(|v| v.to_str().ok())
+        .filter(|s| !s.is_empty());
+
     let claims = validate_token(jwks, token, &audiences, &issuer).await?;
-    let (name, email, picture) = resolve_profile(&claims, token, &domain).await;
-    let user = app.db.upsert_user(claims.sub.clone(), email.clone())?;
+    let (name, email, picture) =
+        resolve_profile(&app.db, &claims, token, access_token, &domain, true).await;
+    let user = app
+        .db
+        .upsert_user(claims.sub.clone(), email.clone(), Some(name.clone()), picture.clone())?;
 
     Ok(Json(AuthMeResponse {
         sub: user.auth0_sub,

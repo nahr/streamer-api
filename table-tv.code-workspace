@@ -11,9 +11,9 @@
       {
         "label": "api",
         "type": "shell",
-        "command": "cargo watch -x run",
+        "command": "cargo watch -C api -x run",
         "options": {
-          "cwd": "${workspaceFolder}/api"
+          "cwd": "${workspaceFolder}"
         },
         "presentation": {
           "reveal": "always",

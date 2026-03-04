@@ -111,6 +111,16 @@ impl Db {
             if !has_match_type {
                 conn.execute("ALTER TABLE pool_matches ADD COLUMN match_type TEXT NOT NULL DEFAULT 'standard'", [])?;
             }
+            // Migration: add name and picture for cached userinfo (avoids repeated Auth0 userinfo calls)
+            let has_name: bool = conn.query_row(
+                "SELECT COUNT(*) FROM pragma_table_info('users') WHERE name='name'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )? > 0;
+            if !has_name {
+                conn.execute("ALTER TABLE users ADD COLUMN name TEXT", [])?;
+                conn.execute("ALTER TABLE users ADD COLUMN picture TEXT", [])?;
+            }
             Ok(())
         })
     }
