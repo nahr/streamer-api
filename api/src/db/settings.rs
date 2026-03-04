@@ -24,9 +24,9 @@ pub struct SettingsDoc {
 impl Db {
     /// Get system settings. Returns default if none exist.
     pub fn get_settings(&self) -> Result<SettingsDoc, ApiError> {
-        tracing::debug!("getting settings lock");
+        tracing::trace!("getting settings lock");
         self.execute(|conn| {
-            tracing::debug!("settings lock acquired");
+            tracing::trace!("settings lock acquired");
             let mut stmt = conn.prepare(
                 "SELECT id, location_name, record_path, record_segment_duration, record_delete_after FROM settings WHERE id = ?1",
             )?;

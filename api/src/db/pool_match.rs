@@ -150,9 +150,9 @@ impl Db {
 
     /// Find pool match by id.
     pub fn find_pool_match_by_id(&self, id: &str) -> Result<Option<PoolMatchDoc>, ApiError> {
-        tracing::debug!(match_id = %id, "find_pool_match_by_id: acquiring db lock");
+        tracing::trace!(match_id = %id, "find_pool_match_by_id: acquiring db lock");
         self.execute(|conn| {
-            tracing::debug!(match_id = %id, "find_pool_match_by_id: db lock acquired");
+            tracing::trace!(match_id = %id, "find_pool_match_by_id: db lock acquired");
             let mut stmt = conn.prepare(
                 "SELECT id, player_one, player_two, start_time, end_time, camera_id, started_by_sub, started_by_name, description, score_history, match_type FROM pool_matches WHERE id = ?1",
             )?;
