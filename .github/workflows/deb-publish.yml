@@ -34,5 +34,5 @@ jobs:
 
       # Build the Rust project, runs build.rs automatically
       - name: Build .deb package
-        run: cargo deb --no-build
+        run: cargo deb
         working-directory: ./api
