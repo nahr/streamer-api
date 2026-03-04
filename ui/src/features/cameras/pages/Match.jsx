@@ -32,6 +32,7 @@ import { MatchDuration } from '../../../components/MatchDuration.jsx'
 import { StreamPreview } from '../components/StreamPreview.jsx'
 import { MatchScoreControls } from '../components/MatchScoreControls.jsx'
 import { DownloadRecordingButton } from '../components/DownloadRecordingButton.jsx'
+import { MatchHistory } from '../components/MatchHistory.jsx'
 import { formatTime, formatDuration, formatMatchWinner, formatMatchTitle, isRecordingAvailable, formatRecordingFilename } from '../../../utils/format.js'
 
 export function Match() {
@@ -425,76 +426,8 @@ export function Match() {
           })()}
         </Box>
 
-        {(match.score_history?.length ?? 0) > 0 && (
-          <Box sx={{ mt: 2, pt: 2, borderTop: 1, borderColor: 'divider' }}>
-            <Typography variant="h6" sx={{ mb: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
-              <HistoryIcon fontSize="small" />
-              Score history
-            </Typography>
-            <Stack component="ul" spacing={0} sx={{ listStyle: 'none', pl: 0, m: 0 }}>
-              {match.score_history.map((entry, i) => {
-                const prev = i > 0 ? match.score_history[i - 1] : { player_one_games_won: 0, player_two_games_won: 0 }
-                const p1Increased = entry.player_one_games_won > prev.player_one_games_won
-                const player = p1Increased ? match.player_one.name : match.player_two.name
-                const gameNumber = entry.player_one_games_won + entry.player_two_games_won
-                const rackNumber = entry.player_one_games_won
-                const startMs = i === 0 ? match.start_time : prev.timestamp
-                // For practice racks (i>0): add 2s buffer so we're inside the MediaMTX segment
-                // (new segment starts ~150ms after score due to finish_recording_segment)
-                const downloadStartMs =
-                  match.match_type === 'practice' && i > 0 ? prev.timestamp + 2000 : startMs
-                const durationSec = Math.max(1, (entry.timestamp - downloadStartMs) / 1000)
-                const isDownloading = downloadingGame === i
-                return (
-                  <Box
-                    key={i}
-                    component="li"
-                    sx={{
-                      display: 'flex',
-                      flexWrap: 'wrap',
-                      alignItems: 'flex-start',
-                      gap: 2,
-                      py: 1,
-                      borderBottom: i < match.score_history.length - 1 ? 1 : 0,
-                      borderColor: 'divider',
-                    }}
-                  >
-                    <Typography
-                      variant="body2"
-                      color="text.secondary"
-                      sx={{ minWidth: 0, flex: { xs: '1 1 100%', sm: '0 0 auto' } }}
-                    >
-                      {formatTime(startMs, 'withSeconds')} – {formatTime(entry.timestamp, 'withSeconds')}
-                      {' · '}
-                      {formatDuration(entry.timestamp - startMs)}
-                    </Typography>
-                    <Typography
-                      variant="body1"
-                      fontWeight={600}
-                      sx={{ minWidth: 0, flex: '1 1 0' }}
-                    >
-                      {match.match_type === 'practice'
-                        ? `Rack ${rackNumber}`
-                        : `${player} won game ${gameNumber}, ${entry.player_one_games_won} – ${entry.player_two_games_won}`}
-                    </Typography>
-                    {match.camera_id && isRecordingAvailable(entry.timestamp, recordDeleteAfter) && (
-                      <DownloadRecordingButton
-                        cameraId={match.camera_id}
-                        startMs={downloadStartMs}
-                        durationSec={durationSec}
-                        filename={formatRecordingFilename(startMs, match.match_type, match.match_type === 'practice' ? rackNumber : gameNumber)}
-                        disabled={isDownloading}
-                        onLoadingStart={() => setDownloadingGame(i)}
-                        onLoadingEnd={() => setDownloadingGame(null)}
-                        onError={(err) => setDownloadError(err.message || 'Download failed')}
-                        sx={{ flex: { xs: '1 1 auto', sm: '0 0 auto' } }}
-                      />
-                    )}
-                  </Box>
-                )
-              })}
-            </Stack>
-          </Box>
+        {match.score_history?.length > 0 && (
+          <MatchHistory match={match} recordDeleteAfter={recordDeleteAfter} onError={(err) => setDownloadError(err.message || 'Download failed')} />
         )}
 
         {match.camera_id && (
