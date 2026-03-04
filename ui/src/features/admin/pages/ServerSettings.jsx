@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { Box, Typography, Paper, Chip, TextField, Button } from '@mui/material'
+import { Box, Typography, Paper, Chip, TextField, Button, CircularProgress } from '@mui/material'
 import { getFacebookStatus } from '../../cameras/api/cameras.js'
 import { getSettings, updateSettings } from '../api/settings.js'
 import { checkForUpgrades, upgradeNow } from '../api/upgrade.js'
@@ -20,6 +20,7 @@ export function ServerSettings() {
   const [rollingSaved, setRollingSaved] = useState(false)
   const [upgradeOutput, setUpgradeOutput] = useState('')
   const [upgradeRunning, setUpgradeRunning] = useState(false)
+  const [upgradePhase, setUpgradePhase] = useState(null) // 'check' | 'upgrade' | null
 
   useEffect(() => {
     let cancelled = false
@@ -85,18 +86,21 @@ export function ServerSettings() {
   const handleCheckForUpgrades = async () => {
     setUpgradeOutput('')
     setUpgradeRunning(true)
+    setUpgradePhase('check')
     try {
-      await checkForUpgrades((chunk) => setUpgradeOutput((prev) => prev + chunk))
+      await checkForUpgrades(() => {}) // discard output - only show output for upgrade
     } catch (e) {
-      setUpgradeOutput((prev) => prev + (prev ? '\n' : '') + `Error: ${e.message}`)
+      setUpgradeOutput(`Error: ${e.message}`)
     } finally {
       setUpgradeRunning(false)
+      setUpgradePhase(null)
     }
   }
 
   const handleUpgradeNow = async () => {
     setUpgradeOutput('')
     setUpgradeRunning(true)
+    setUpgradePhase('upgrade')
     try {
       await upgradeNow((chunk) => setUpgradeOutput((prev) => prev + chunk))
       refetch({ silent: true })
@@ -104,6 +108,7 @@ export function ServerSettings() {
       setUpgradeOutput((prev) => prev + (prev ? '\n' : '') + `Error: ${e.message}`)
     } finally {
       setUpgradeRunning(false)
+      setUpgradePhase(null)
     }
   }
 
@@ -122,7 +127,7 @@ export function ServerSettings() {
           <Typography sx={{ fontFamily: 'monospace' }}>{version || '(loading…)'}</Typography>
           <Chip label={upToDate ? 'Up to date' : 'Update available'} size="small" color={upToDate ? 'success' : 'warning'} />
         </Box>
-        <Box sx={{ display: 'flex', gap: 1, mb: 2 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
           <Button
             variant="outlined"
             size="small"
@@ -139,8 +144,11 @@ export function ServerSettings() {
           >
             Upgrade now
           </Button>
+          {upgradePhase === 'check' && (
+            <CircularProgress size={24} sx={{ ml: 1 }} />
+          )}
         </Box>
-        {upgradeOutput && (
+        {upgradePhase !== 'check' && upgradeOutput && (
           <Box
             component="pre"
             sx={{
