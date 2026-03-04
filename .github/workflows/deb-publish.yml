@@ -37,16 +37,19 @@ jobs:
         run: cargo deb
         working-directory: ./api
 
-      # Deploy
-      - name: Upload .deb to GitHub Packages
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Deploy .deb to GitHub Pages
+      - name: Publish Debian repo to gh-pages
         run: |
-          PACKAGE_FILE=$(ls api/target/debian/*.deb)
-          echo "Uploading $PACKAGE_FILE"
-          curl -u ${{ github.actor }}:$GITHUB_TOKEN \
-            --upload-file "$PACKAGE_FILE" \
-            "https://apt.pkg.github.com/${{ github.repository_owner }}/${{ github.repository }}/"
+            mkdir -p repo/dists/stable/main/binary-amd64
+            mkdir -p repo/pool/main/y
+            cp api/target/debian/*.deb repo/pool/main/y/
+            dpkg-scanpackages repo/pool /dev/null | gzip -9c > repo/dists/stable/main/binary-amd64/Packages.gz
+            git config --global user.name "${{ github.actor }}"
+            git config --global user.email "${{ github.actor }}@users.noreply.github.com"
+            git checkout --orphan gh-pages
+            git add repo
+            git commit -m "Publish Debian repo"
+            git push -f origin gh-pages
 
 
       - name: Verify package
