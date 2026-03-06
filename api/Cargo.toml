@@ -35,7 +35,7 @@ serde_json = "1.0.149"
 thiserror = "2.0.18"
 urlencoding = "2.1"
 tokio = { version = "1", features = ["full"] }
-tower-http = { version = "0.5", features = ["fs", "util", "trace"] }
+tower-http = { version = "0.5", features = ["fs", "util", "trace", "cors"] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 chrono = { version = "0.4.44", features = ["serde"] }

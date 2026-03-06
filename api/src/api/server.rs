@@ -2,6 +2,7 @@ use axum::{extract::State, routing::get, Router};
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::RwLock;
+use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::{ServeDir, ServeFile};
 
 use crate::api::{auth, camera, config, facebook, info, pool_match, settings, upgrade, user};
@@ -111,6 +112,11 @@ impl ApiServer {
             camera_connection_status,
         };
 
+        let cors = CorsLayer::new()
+            .allow_origin(Any)
+            .allow_methods(Any)
+            .allow_headers(Any);
+
         let mut app = Router::new()
             .route("/api/hello", get(hello_world))
             .merge(config::routes())
@@ -123,7 +129,8 @@ impl ApiServer {
             .merge(upgrade::routes())
             .merge(user::routes())
             // .layer(TraceLayer::new_for_http())
-            .with_state(app_state);
+            .with_state(app_state)
+            .layer(cors);
 
         let ui_dist = cfg
             .ui_dist_path
