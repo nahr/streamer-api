@@ -6,8 +6,15 @@ on:
       - main
 
 jobs:
-  build-and-publish:
-    runs-on: ubuntu-latest
+  build:
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
 
@@ -23,12 +30,10 @@ jobs:
         with:
           node-version: "20"
 
-      # Optional: install dependencies
       - name: Install npm dependencies
         run: npm install
         working-directory: ./ui
 
-      # Install cargo-deb
       - name: Install cargo-deb
         run: cargo install cargo-deb
 
@@ -36,17 +41,42 @@ jobs:
         run: cargo deb --deb-revision ${{ github.run_number }}
         working-directory: ./api
 
+      - name: Upload .deb artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: deb-${{ matrix.arch }}
+          path: api/target/debian/*.deb
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download amd64 .deb
+        uses: actions/download-artifact@v4
+        with:
+          name: deb-amd64
+
+      - name: Download arm64 .deb
+        uses: actions/download-artifact@v4
+        with:
+          name: deb-arm64
+
       - name: Publish Debian repo to gh-pages
         run: |
           # Create proper root layout
           mkdir -p dists/stable/main/binary-amd64
+          mkdir -p dists/stable/main/binary-arm64
           mkdir -p pool/main/y
 
-          # Copy .deb file to pool
-          cp api/target/debian/*.deb pool/main/y/
+          # Copy .deb files to pool
+          cp deb-amd64/*.deb pool/main/y/
+          cp deb-arm64/*.deb pool/main/y/
 
-          # Generate Packages.gz
-          dpkg-scanpackages pool /dev/null | gzip -9c > dists/stable/main/binary-amd64/Packages.gz
+          # Generate Packages.gz per architecture
+          dpkg-scanpackages -a amd64 pool /dev/null | gzip -9c > dists/stable/main/binary-amd64/Packages.gz
+          dpkg-scanpackages -a arm64 pool /dev/null | gzip -9c > dists/stable/main/binary-arm64/Packages.gz
 
           # Disable Jekyll
           touch .nojekyll
