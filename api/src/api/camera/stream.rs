@@ -9,7 +9,6 @@ use axum::{
 use bytes::Bytes;
 use tokio_stream::{wrappers::BroadcastStream, StreamExt};
 
-use crate::api::auth::{AuthenticatedUser, StreamAuth};
 use crate::api::AppState;
 use crate::db::camera::CameraType;
 use crate::error::ApiError;
@@ -18,9 +17,7 @@ use crate::video::{self, overlay, rtmp, rtsp_camera, CameraSource};
 const MJPEG_BOUNDARY: &str = "frame";
 
 /// GET /api/cameras/:id/stream - MJPEG stream for RTSP cameras.
-/// Accepts either Bearer token (browser) or ?stream_token= (RTMP pipeline).
 pub async fn camera_stream(
-    _auth: StreamAuth,
     State(app): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Response, ApiError> {
@@ -111,7 +108,6 @@ pub async fn camera_stream(
 
 /// POST /api/cameras/:id/stream/rtmp - Start RTMP push to the given URL.
 pub async fn camera_stream_rtmp_start(
-    _auth: AuthenticatedUser,
     State(app): State<AppState>,
     Path(id): Path<String>,
     axum::Json(req): axum::Json<rtmp::RtmpStartRequest>,
@@ -193,7 +189,6 @@ pub async fn camera_stream_rtmp_start(
 
 /// POST /api/cameras/:id/stream/rtmp/stop - Stop the RTMP stream for this camera.
 pub async fn camera_stream_rtmp_stop(
-    _auth: AuthenticatedUser,
     State(app): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<axum::Json<serde_json::Value>, ApiError> {
@@ -221,7 +216,6 @@ pub async fn camera_stream_rtmp_stop(
 
 /// GET /api/cameras/:id/stream/rtmp/status - Check if RTMP stream is active.
 pub async fn camera_stream_rtmp_status(
-    _auth: AuthenticatedUser,
     State(app): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<axum::Json<serde_json::Value>, ApiError> {

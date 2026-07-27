@@ -5,7 +5,6 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 
-use crate::api::auth::AuthenticatedUser;
 use crate::api::AppState;
 use crate::db::camera::CameraType;
 use crate::error::ApiError;
@@ -60,7 +59,6 @@ pub struct CameraUpdateRequest {
 
 /// GET /api/cameras - List all cameras.
 pub async fn cameras_list(
-    _auth: AuthenticatedUser,
     State(app): State<AppState>,
 ) -> Result<Json<Vec<CameraResponse>>, ApiError> {
     let cameras = app.db.list_cameras()?;
@@ -81,7 +79,6 @@ pub async fn cameras_list(
 
 /// GET /api/cameras/:id - Get a camera by id.
 pub async fn cameras_get(
-    _auth: AuthenticatedUser,
     State(app): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<CameraResponse>, ApiError> {
@@ -97,7 +94,6 @@ pub async fn cameras_get(
 
 /// POST /api/cameras - Create a new camera.
 pub async fn cameras_create(
-    _auth: AuthenticatedUser,
     State(app): State<AppState>,
     Json(req): Json<CameraCreateRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -124,7 +120,6 @@ pub async fn cameras_create(
 
 /// PUT /api/cameras/:id - Update a camera.
 pub async fn cameras_update(
-    _auth: AuthenticatedUser,
     State(app): State<AppState>,
     Path(id): Path<String>,
     Json(req): Json<CameraUpdateRequest>,
@@ -158,7 +153,6 @@ pub async fn cameras_update(
 
 /// DELETE /api/cameras/:id - Delete a camera.
 pub async fn cameras_delete(
-    _auth: AuthenticatedUser,
     State(app): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {

@@ -42,7 +42,3 @@ chrono = { version = "0.4.44", features = ["serde"] }
 nix = { version = "0.28", features = ["signal"] }
 toml = "0.8"
 uuid = { version = "1", features = ["v4"] }
-hmac = "0.12"
-sha2 = "0.10"
-base64 = "0.22"
-jsonwebtoken = "9.2"

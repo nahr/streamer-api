@@ -13,8 +13,7 @@ import {
 } from '@mui/material'
 import VideocamIcon from '@mui/icons-material/Videocam'
 import SportsEsportsIcon from '@mui/icons-material/SportsEsports'
-import { useAuth } from '../authStore.jsx'
-import { listCameras, formatCameraType, parseCameraType } from '../features/cameras/api/cameras.js'
+import { listCameras, formatCameraType } from '../features/cameras/api/cameras.js'
 import { listMatches } from '../features/cameras/api/poolMatches.js'
 import { MatchDuration } from '../components/MatchDuration.jsx'
 import { formatTime, formatMatchTitle, formatMatchWinner } from '../utils/format.js'
@@ -22,14 +21,12 @@ import { formatTime, formatMatchTitle, formatMatchWinner } from '../utils/format
 export function Home() {
   const navigate = useNavigate()
   const location = useLocation()
-  const { isLoggedIn } = useAuth()
   const [cameras, setCameras] = useState([])
   const [matches, setMatches] = useState([])
   const [loading, setLoading] = useState(true)
   const [matchesLoading, setMatchesLoading] = useState(true)
 
   const fetchCameras = useCallback(async (showLoading = true) => {
-    if (!isLoggedIn) return
     if (showLoading) setLoading(true)
     try {
       const data = await listCameras()
@@ -39,23 +36,16 @@ export function Home() {
     } finally {
       if (showLoading) setLoading(false)
     }
-  }, [isLoggedIn])
+  }, [])
 
   useEffect(() => {
-    if (!isLoggedIn) {
-      setCameras([])
-      setLoading(false)
-      return
-    }
     fetchCameras(true)
-  }, [isLoggedIn, fetchCameras])
+  }, [fetchCameras])
 
-  // Refresh cameras periodically to update connection status (no loading spinner)
   useEffect(() => {
-    if (!isLoggedIn) return
     const interval = setInterval(() => fetchCameras(false), 20000)
     return () => clearInterval(interval)
-  }, [isLoggedIn, fetchCameras])
+  }, [fetchCameras])
 
   const fetchMatches = useCallback(async () => {
     setMatchesLoading(true)
@@ -119,9 +109,6 @@ export function Home() {
                   {match.camera_name && <> · {match.camera_name}</>}
                   {' · '}
                   <MatchDuration match={match} />
-                  {match.started_by && (
-                    <> · Started by {match.started_by}</>
-                  )}
                   {match.end_time && (() => {
                     const endedLabel = formatMatchWinner(match)
                     return endedLabel ? (
@@ -162,74 +149,70 @@ export function Home() {
         </Paper>
       )}
 
-      {isLoggedIn && (
-        <>
-          <Typography variant="h6" component="h2" gutterBottom>
-            Cameras
-          </Typography>
-          {loading ? (
-            <Box display="flex" justifyContent="center" py={4}>
-              <CircularProgress />
-            </Box>
-          ) : cameras.length === 0 ? (
-            <Typography color="text.secondary">
-              No cameras configured. Add cameras in Admin → Camera Settings.
-            </Typography>
-          ) : (
-            <Paper variant="outlined">
-              <List disablePadding>
-                {cameras.map((camera) => {
-                  const inUse = camerasInUse.has(camera.id)
-                  const offline = camera.connection_status === false
-                  return (
-                    <ListItemButton
-                      key={camera.id}
-                      onClick={() => !inUse && navigate(`/camera/${camera.id}`)}
-                      disabled={inUse}
-                    >
-                      <VideocamIcon sx={{ mr: 2, color: 'text.secondary' }} />
-                      <ListItemText
-                        primary={
-                          <>
-                            {camera.name}
-                            {inUse && (
-                              <Chip
-                                label="in use"
-                                size="small"
-                                component="span"
-                                sx={{ ml: 1, verticalAlign: 'middle' }}
-                              />
-                            )}
-                            {offline && (
-                              <Chip
-                                label="offline"
-                                size="small"
-                                component="span"
-                                color="default"
-                                variant="outlined"
-                                sx={{ ml: 1, verticalAlign: 'middle' }}
-                              />
-                            )}
-                            {camera.connection_status === true && !inUse && (
-                              <Chip
-                                label="connected"
-                                size="small"
-                                component="span"
-                                color="success"
-                                sx={{ ml: 1, verticalAlign: 'middle' }}
-                              />
-                            )}
-                          </>
-                        }
-                        secondary={formatCameraType(camera.camera_type, 'stringNoUrl')}
-                      />
-                    </ListItemButton>
-                  )
-                })}
-              </List>
-            </Paper>
-          )}
-        </>
+      <Typography variant="h6" component="h2" gutterBottom>
+        Cameras
+      </Typography>
+      {loading ? (
+        <Box display="flex" justifyContent="center" py={4}>
+          <CircularProgress />
+        </Box>
+      ) : cameras.length === 0 ? (
+        <Typography color="text.secondary">
+          No cameras configured. Add cameras in Admin → Camera Settings.
+        </Typography>
+      ) : (
+        <Paper variant="outlined">
+          <List disablePadding>
+            {cameras.map((camera) => {
+              const inUse = camerasInUse.has(camera.id)
+              const offline = camera.connection_status === false
+              return (
+                <ListItemButton
+                  key={camera.id}
+                  onClick={() => !inUse && navigate(`/camera/${camera.id}`)}
+                  disabled={inUse}
+                >
+                  <VideocamIcon sx={{ mr: 2, color: 'text.secondary' }} />
+                  <ListItemText
+                    primary={
+                      <>
+                        {camera.name}
+                        {inUse && (
+                          <Chip
+                            label="in use"
+                            size="small"
+                            component="span"
+                            sx={{ ml: 1, verticalAlign: 'middle' }}
+                          />
+                        )}
+                        {offline && (
+                          <Chip
+                            label="offline"
+                            size="small"
+                            component="span"
+                            color="default"
+                            variant="outlined"
+                            sx={{ ml: 1, verticalAlign: 'middle' }}
+                          />
+                        )}
+                        {camera.connection_status === true && !inUse && (
+                          <Chip
+                            label="connected"
+                            size="small"
+                            component="span"
+                            color="success"
+                            sx={{ ml: 1, verticalAlign: 'middle' }}
+                          />
+                        )}
+                      </>
+                    }
+                    secondary={formatCameraType(camera.camera_type, 'stringNoUrl')}
+                  />
+                </ListItemButton>
+              )
+            })}
+          </List>
+        </Paper>
       )}
     </Box>
   )

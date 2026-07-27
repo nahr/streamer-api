@@ -8,20 +8,12 @@ import {
   Typography,
 } from '@mui/material'
 import AdminPanelSettingsIcon from '@mui/icons-material/AdminPanelSettings'
-import { useAuth0 } from '@auth0/auth0-react'
-import { useAuth } from '../authStore.jsx'
 import { useApiInfo } from '../apiInfoStore.jsx'
 
 export function Layout() {
   const navigate = useNavigate()
   const location = useLocation()
-  const { loginWithRedirect } = useAuth0()
-  const { user, isLoggedIn, isAdmin, logout } = useAuth()
   const { locationName } = useApiInfo()
-
-  const handleLogin = () => {
-    loginWithRedirect({ appState: { returnTo: location.pathname } })
-  }
 
   return (
     <Box sx={{ flexGrow: 1 }}>
@@ -39,42 +31,18 @@ export function Layout() {
           >
             Home
           </Button>
-          {isAdmin && (
-            <Button
-              color="inherit"
-              onClick={() => navigate('/admin')}
-              startIcon={<AdminPanelSettingsIcon />}
-              sx={{
-                ml: 1,
-                fontWeight: location.pathname.startsWith('/admin') ? 700 : 400,
-              }}
-            >
-              Admin
-            </Button>
-          )}
+          <Button
+            color="inherit"
+            onClick={() => navigate('/admin')}
+            startIcon={<AdminPanelSettingsIcon />}
+            sx={{
+              ml: 1,
+              fontWeight: location.pathname.startsWith('/admin') ? 700 : 400,
+            }}
+          >
+            Admin
+          </Button>
           <Box sx={{ flexGrow: 1 }} />
-          {isLoggedIn ? (
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              {user?.picture && (
-                <Box
-                  component="img"
-                  src={user.picture}
-                  alt=""
-                  sx={{ width: 28, height: 28, borderRadius: '50%', objectFit: 'cover' }}
-                />
-              )}
-              <Typography variant="body2" sx={{ opacity: 0.9 }}>
-                {user?.name || user?.email}
-              </Typography>
-              <Button color="inherit" onClick={logout}>
-                Log out
-              </Button>
-            </Box>
-          ) : (
-            <Button color="inherit" onClick={handleLogin}>
-              Log in
-            </Button>
-          )}
         </Toolbar>
       </AppBar>
       <Container maxWidth="lg" sx={{ py: 3 }}>

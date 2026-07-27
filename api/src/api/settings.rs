@@ -1,14 +1,12 @@
 use axum::{extract::State, routing::get, Json};
 use serde::Deserialize;
 
-use crate::api::auth::AuthenticatedUser;
 use crate::api::AppState;
 use crate::db::settings::SettingsDoc;
 use crate::error::ApiError;
 
 /// GET /api/settings - Returns system settings.
 pub async fn get_settings(
-    _auth: AuthenticatedUser,
     State(app): State<AppState>,
 ) -> Result<Json<SettingsDoc>, ApiError> {
     let settings = app.db.get_settings()?;
@@ -25,7 +23,6 @@ pub struct SettingsUpdateRequest {
 
 /// PUT /api/settings - Update system settings.
 pub async fn put_settings(
-    _auth: AuthenticatedUser,
     State(app): State<AppState>,
     Json(req): Json<SettingsUpdateRequest>,
 ) -> Result<Json<SettingsDoc>, ApiError> {

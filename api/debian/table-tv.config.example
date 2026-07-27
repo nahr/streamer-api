@@ -8,23 +8,7 @@ ui_dist_path = "/usr/share/table-tv/ui-dist"
 # Optional: fixed token for RTMP pipeline
 # stream_token = "your-secret-token"
 
-# Auth0 (required for login)
-[auth0]
-# domain = "your-tenant.us.auth0.com"
-# client_id = "your-spa-client-id"
-# audience = "https://your-api-identifier"
-# skip_audience = true
-# connection = "facebook"
-
-# Optional: Facebook integration
-[facebook]
-# app_id = ""
-# app_secret = ""
-
 # MediaMTX (for RTSP cameras). playback_url and rtsp_host derived from api_url.
 [mediamtx]
 # api_url = "http://127.0.0.1:9997"
 # rtsp_port = "8554"
-
-# Facebook RTMPS via stunnel
-# use_stunnel_for_rtmps = true

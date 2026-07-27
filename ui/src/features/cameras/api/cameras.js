@@ -127,36 +127,7 @@ export async function deleteCamera(id) {
 }
 
 /**
- * Check if Facebook Live is configured.
- * @returns {Promise<{ configured: boolean, redirect_uri?: string }>}
- */
-export async function getFacebookStatus() {
-  const res = await fetchWithAuth('/api/facebook/status')
-  if (!res.ok) throw new Error('Failed to check Facebook status')
-  return res.json()
-}
-
-/**
- * Get RTMP URL from Facebook Live API. Creates a new live video and returns the stream URL.
- * Requires auth_key from OAuth callback.
- * @param {{ title?: string, description?: string, privacy?: string, auth_key?: string }} [options]
- * @returns {Promise<{ url: string, live_video_id?: string }>}
- */
-export async function getFacebookLiveUrl(options = {}) {
-  const res = await fetchWithAuth('/api/facebook/live-url', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(options),
-  })
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(text || 'Failed to get Facebook stream URL')
-  }
-  return res.json()
-}
-
-/**
- * Start RTMP push to the given URL (e.g. YouTube Live, Facebook).
+ * Check if RTMP stream is active for a camera.
  * Only works for RTSP cameras. Requires FFmpeg on the server.
  * @param {string} cameraId
  * @param {string} rtmpUrl - e.g. rtmp://a.rtmp.youtube.com/live2/xxxx or rtmps://...

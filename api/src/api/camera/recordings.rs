@@ -8,7 +8,6 @@ use axum::{
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
-use crate::api::auth::AuthenticatedUser;
 use crate::api::AppState;
 use crate::error::ApiError;
 
@@ -96,9 +95,8 @@ async fn align_start_with_segments(
 }
 
 /// GET /api/cameras/:id/recordings/download?start=...&duration=...
-/// Proxies to MediaMTX playback server. Requires auth.
+/// Proxies to MediaMTX playback server.
 pub async fn recording_download(
-    _auth: AuthenticatedUser,
     State(app): State<AppState>,
     Path(id): Path<String>,
     Query(q): Query<RecordingDownloadQuery>,
@@ -195,7 +193,6 @@ pub async fn recording_download(
 /// GET /api/cameras/:id/recordings/timeline?start=...&end=...
 /// Returns available recording segments from MediaMTX for the given time range.
 pub async fn recording_timeline(
-    _auth: AuthenticatedUser,
     State(app): State<AppState>,
     Path(id): Path<String>,
     Query(q): Query<RecordingTimelineQuery>,

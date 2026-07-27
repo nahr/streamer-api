@@ -1,5 +1,5 @@
 //! Upgrade endpoints: apt update and apt install table-tv.
-//! Admin only. Streams command output to the client.
+//! Streams command output to the client.
 
 use axum::{
     body::Body,
@@ -14,21 +14,16 @@ use tokio::process::Command;
 use tokio_stream::wrappers::ReceiverStream;
 use tokio_stream::StreamExt;
 
-use crate::api::auth::AuthenticatedUser;
 use crate::api::AppState;
 use crate::error::ApiError;
 
 const PACKAGE_NAME: &str = env!("CARGO_PKG_NAME");
 
-/// POST /api/upgrade/check - Runs `apt update`. Logs output server-side, returns empty body. Admin only.
+/// POST /api/upgrade/check - Runs `apt update`. Logs output server-side, returns empty body.
 pub async fn check_for_upgrades(
-    auth: AuthenticatedUser,
     State(_app): State<AppState>,
 ) -> Result<Response, ApiError> {
-    if !auth.is_admin {
-        return Err(ApiError::Forbidden("Admin access required".to_string()));
-    }
-    tracing::info!(user = %auth.sub, "check for upgrades: apt update");
+    tracing::info!("check for upgrades: apt update");
 
     let output = Command::new("apt")
         .arg("update")
@@ -65,14 +60,10 @@ pub async fn check_for_upgrades(
         .into_response())
 }
 
-/// POST /api/upgrade/install - Runs `apt install -y table-tv`. Streams output. Admin only.
+/// POST /api/upgrade/install - Runs `apt install -y table-tv`. Streams output.
 pub async fn upgrade_now(
-    auth: AuthenticatedUser,
     State(_app): State<AppState>,
 ) -> Result<Response, ApiError> {
-    if !auth.is_admin {
-        return Err(ApiError::Forbidden("Admin access required".to_string()));
-    }
     run_apt_stream("upgrade", &["install", "-y", PACKAGE_NAME]).await
 }
 

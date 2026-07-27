@@ -6,7 +6,6 @@ use axum::{
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 
-use crate::api::auth::AuthenticatedUser;
 use crate::api::AppState;
 use crate::db::pool_match::{MatchPlayer, MatchType, PoolMatch, PoolMatchDoc, Rating};
 use crate::error::ApiError;
@@ -189,7 +188,6 @@ pub struct ActiveMatchQuery {
 
 /// GET /api/pool-matches/active?camera_id=X - Get the active (ongoing) match for a camera.
 pub async fn pool_matches_active(
-    auth: AuthenticatedUser,
     State(app): State<AppState>,
     Query(q): Query<ActiveMatchQuery>,
 ) -> Result<Json<Option<PoolMatchResponse>>, ApiError> {
@@ -204,12 +202,8 @@ pub async fn pool_matches_active(
             .and_then(|cid| app.db.find_camera_by_id(cid).ok().flatten())
             .map(|c| c.name)
             .unwrap_or_default();
-        let can_edit = doc
-            .started_by_sub
-            .as_ref()
-            .map(|sub| sub == &auth.sub)
-            .unwrap_or(false);
-        PoolMatchResponse::from_doc(doc, camera_name, Some(can_edit))
+        let can_edit = doc.end_time.is_none().then_some(true);
+        PoolMatchResponse::from_doc(doc, camera_name, can_edit)
     });
     Ok(Json(resp))
 }
@@ -236,7 +230,6 @@ pub async fn pool_matches_list(
 
 /// GET /api/pool-matches/:id - Get a pool match by id.
 pub async fn pool_matches_get(
-    auth: AuthenticatedUser,
     State(app): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<PoolMatchResponse>, ApiError> {
@@ -253,19 +246,14 @@ pub async fn pool_matches_get(
         .and_then(|cid| app.db.find_camera_by_id(cid).ok().flatten())
         .map(|c| c.name)
         .unwrap_or_default();
-    let can_edit = m
-        .started_by_sub
-        .as_ref()
-        .map(|sub| sub == &auth.sub)
-        .unwrap_or(false);
-    PoolMatchResponse::from_doc(m, camera_name, Some(can_edit))
+    let can_edit = m.end_time.is_none().then_some(true);
+    PoolMatchResponse::from_doc(m, camera_name, can_edit)
         .ok_or(ApiError::PoolMatchNotFound)
         .map(Json)
 }
 
 /// POST /api/pool-matches - Create a new pool match.
 pub async fn pool_matches_create(
-    auth: AuthenticatedUser,
     State(app): State<AppState>,
     Json(req): Json<PoolMatchCreateRequest>,
 ) -> Result<Json<serde_json::Value>, ApiError> {
@@ -341,8 +329,8 @@ pub async fn pool_matches_create(
         start_time: Utc::now(),
         end_time: None,
         camera_id: req.camera_id.clone(),
-        started_by_sub: Some(auth.sub),
-        started_by_name: Some(auth.name),
+        started_by_sub: None,
+        started_by_name: None,
         description: req.description.filter(|s| !s.trim().is_empty()),
         match_type,
     };
@@ -361,7 +349,6 @@ pub async fn pool_matches_create(
 /// PATCH /api/pool-matches/:id/score - Update games_won for a player. Sets end_time when games_won == race_to.
 /// Only the user who created the match can update it.
 pub async fn pool_matches_update_score(
-    auth: AuthenticatedUser,
     State(app): State<AppState>,
     Path(id): Path<String>,
     Json(req): Json<PoolMatchUpdateScoreRequest>,
@@ -384,16 +371,6 @@ pub async fn pool_matches_update_score(
     if doc.match_type == MatchType::Practice && req.player != 1 {
         return Err(ApiError::BadRequest(
             "Practice matches only track player 1 (racks)".to_string(),
-        ));
-    }
-    let can_update = doc
-        .started_by_sub
-        .as_ref()
-        .map(|sub| sub == &auth.sub)
-        .unwrap_or(false);
-    if !can_update {
-        return Err(ApiError::Forbidden(
-            "Only the person who created the match can update it".to_string(),
         ));
     }
     tracing::debug!(match_id = %id, "update score: calling update_pool_match_games_won");
@@ -438,7 +415,6 @@ pub async fn pool_matches_update_score(
 
 /// PATCH /api/pool-matches/:id/details - Update names, ratings, description. Creator only.
 pub async fn pool_matches_update_details(
-    auth: AuthenticatedUser,
     State(app): State<AppState>,
     Path(id): Path<String>,
     Json(req): Json<PoolMatchUpdateDetailsRequest>,
@@ -453,16 +429,6 @@ pub async fn pool_matches_update_details(
     if doc.end_time.is_some() {
         return Err(ApiError::BadRequest(
             "Cannot update an ended match".to_string(),
-        ));
-    }
-    let can_update = doc
-        .started_by_sub
-        .as_ref()
-        .map(|sub| sub == &auth.sub)
-        .unwrap_or(false);
-    if !can_update {
-        return Err(ApiError::Forbidden(
-            "Only the person who started the match can update details".to_string(),
         ));
     }
 
@@ -532,9 +498,7 @@ pub async fn pool_matches_update_details(
 }
 
 /// PATCH /api/pool-matches/:id/end - End the match early (set end_time).
-/// The match creator or an admin can end a match.
 pub async fn pool_matches_end(
-    auth: AuthenticatedUser,
     State(app): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<PoolMatchResponse>, ApiError> {
@@ -547,18 +511,7 @@ pub async fn pool_matches_end(
         .db
         .find_pool_match_by_id(&id)?
         .ok_or(ApiError::PoolMatchNotFound)?;
-    tracing::debug!(match_id = %id, "end match: got match doc, checking auth");
-    let can_end = auth.is_admin
-        || doc
-            .started_by_sub
-            .as_ref()
-            .map(|sub| sub == &auth.sub)
-            .unwrap_or(false);
-    if !can_end {
-        return Err(ApiError::Forbidden(
-            "Only the match creator or an admin can end the match".to_string(),
-        ));
-    }
+    tracing::debug!(match_id = %id, "end match: got match doc");
     // For practice: add one rack when ending (rack in progress counts as completed)
     if doc.match_type == MatchType::Practice {
         let extra = doc.player_one.games_won.saturating_add(1);
@@ -590,7 +543,6 @@ pub async fn pool_matches_end(
 
 /// DELETE /api/pool-matches/:id - Delete a pool match.
 pub async fn pool_matches_delete(
-    _auth: AuthenticatedUser,
     State(app): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<Json<serde_json::Value>, ApiError> {

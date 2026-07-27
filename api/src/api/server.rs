@@ -5,7 +5,7 @@ use std::sync::RwLock;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::services::{ServeDir, ServeFile};
 
-use crate::api::{auth, camera, config, facebook, info, pool_match, settings, upgrade, user};
+use crate::api::{camera, config, info, pool_match, settings, upgrade};
 use crate::db::Db;
 use crate::error::ApiError;
 use crate::video::{self, OverlayState};
@@ -16,9 +16,7 @@ pub struct ApiServer;
 pub struct AppState {
     pub db: Db,
     pub overlay: OverlayState,
-    pub facebook_tokens: facebook::FacebookTokenCache,
     pub rtmp_processes: crate::video::RtmpState,
-    pub jwks: Option<Arc<auth::JwksCache>>,
     /// Token for server-side stream access (RTMP pipeline). Env STREAM_TOKEN or random at startup.
     pub stream_token: String,
     /// Per-camera connection status from MediaMTX (camera_id -> ready).
@@ -40,17 +38,6 @@ impl ApiServer {
         }
         tracing::info!("router: overlay done");
         let cfg = crate::config::config();
-        let auth0_ready = cfg.auth0_domain.as_ref().map_or(false, |s| !s.is_empty())
-            && (cfg.auth0_audience.as_ref().map_or(false, |s| !s.is_empty())
-                || cfg
-                    .auth0_client_id
-                    .as_ref()
-                    .map_or(false, |s| !s.is_empty()));
-        let jwks = auth0_ready.then(|| {
-            Arc::new(auth::JwksCache::new(
-                cfg.auth0_domain.as_deref().unwrap_or(""),
-            ))
-        });
 
         let stream_token = cfg.stream_token.clone().unwrap_or_else(|| {
             use std::collections::hash_map::DefaultHasher;
@@ -105,9 +92,7 @@ impl ApiServer {
         let app_state = AppState {
             db: db.clone(),
             overlay: overlay.clone(),
-            facebook_tokens: facebook::FacebookTokenCache::new(),
             rtmp_processes,
-            jwks,
             stream_token,
             camera_connection_status,
         };
@@ -120,15 +105,11 @@ impl ApiServer {
         let mut app = Router::new()
             .route("/api/hello", get(hello_world))
             .merge(config::routes())
-            .merge(auth::routes())
             .merge(camera::routes())
             .merge(pool_match::routes())
-            .merge(facebook::routes())
             .merge(info::routes())
             .merge(settings::routes())
             .merge(upgrade::routes())
-            .merge(user::routes())
-            // .layer(TraceLayer::new_for_http())
             .with_state(app_state)
             .layer(cors);
 

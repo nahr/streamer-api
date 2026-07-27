@@ -1,12 +1,9 @@
-pub mod auth;
-mod config;
+pub mod config;
 mod camera;
-mod facebook;
 mod info;
 mod pool_match;
 mod server;
 mod settings;
 mod upgrade;
-mod user;
 
 pub use server::{ApiServer, AppState};

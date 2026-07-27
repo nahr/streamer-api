@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import {
   Alert,
   Box,
@@ -26,12 +26,10 @@ import StopIcon from '@mui/icons-material/Stop'
 import PlayArrowIcon from '@mui/icons-material/PlayArrow'
 import LiveTvIcon from '@mui/icons-material/LiveTv'
 import HistoryIcon from '@mui/icons-material/History'
-import { getCamera, getFacebookLiveUrl, getFacebookStatus, getRtmpStreamStatus, formatCameraType, startRtmpStream, stopRtmpStream } from '../api/cameras.js'
+import { getCamera, getRtmpStreamStatus, formatCameraType, startRtmpStream, stopRtmpStream } from '../api/cameras.js'
 import { getActiveMatch, createMatch, updateScore, endMatch, listMatches } from '../api/poolMatches.js'
 import { formatTime, formatDuration, formatMatchTitle, isRecordingAvailable, formatRecordingFilename } from '../../../utils/format.js'
 import { useApiInfo } from '../../../apiInfoStore.jsx'
-import { useAuth } from '../../../authStore.jsx'
-import { getToken, urlWithToken } from '../../../apiClient.js'
 import { LiveTimestamp } from '../../../components/LiveTimestamp.jsx'
 import { StreamPreview } from '../components/StreamPreview.jsx'
 import { MatchScoreControls } from '../components/MatchScoreControls.jsx'
@@ -43,8 +41,6 @@ export function Camera() {
   const { id } = useParams()
   const navigate = useNavigate()
   const { locationName, recordDeleteAfter } = useApiInfo()
-  const { user } = useAuth()
-  const [searchParams, setSearchParams] = useSearchParams()
   const [camera, setCamera] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -72,12 +68,6 @@ export function Camera() {
   const [rtmpStarting, setRtmpStarting] = useState(false)
   const [rtmpActive, setRtmpActive] = useState(false)
   const [rtmpStopping, setRtmpStopping] = useState(false)
-  const [facebookConfigured, setFacebookConfigured] = useState(false)
-  const [goLivePrivacy, setGoLivePrivacy] = useState(() => {
-    const saved = localStorage.getItem('table-tv-go-live-privacy')
-    return ['EVERYONE', 'ALL_FRIENDS', 'FRIENDS_OF_FRIENDS', 'SELF'].includes(saved) ? saved : 'EVERYONE'
-  })
-  const [isFacebookLiveFlow, setIsFacebookLiveFlow] = useState(false)
   const [streamUrl, setStreamUrl] = useState('')
   const [streamError, setStreamError] = useState(false)
   const [previewLoaded, setPreviewLoaded] = useState(false)
@@ -95,15 +85,8 @@ export function Camera() {
       return
     }
     setStreamError(false)
-    setStreamUrl('') // Clear while fetching token
+    setStreamUrl(`/api/cameras/${camera.id}/stream`)
     setPreviewLoaded(false)
-    let cancelled = false
-    getToken().then((token) => {
-      if (!cancelled) {
-        setStreamUrl(urlWithToken(`/api/cameras/${camera.id}/stream`, token))
-      }
-    })
-    return () => { cancelled = true }
   }, [camera?.id, rtmpActive])
 
   const fetchActiveMatch = useCallback(async () => {
@@ -205,30 +188,14 @@ export function Camera() {
     return () => clearInterval(interval)
   }, [camera?.id, fetchRtmpStatus])
 
-  useEffect(() => {
-    let cancelled = false
-    async function check() {
-      try {
-        const { configured } = await getFacebookStatus()
-        if (!cancelled) setFacebookConfigured(configured)
-      } catch {
-        if (!cancelled) setFacebookConfigured(false)
-      }
-    }
-    check()
-    return () => { cancelled = true }
-  }, [])
-
   const handleStartPractice = async () => {
-    if (!camera?.id || !user) return
-    const playerName = (user.name || user.email || 'Player').trim()
-    if (!playerName) return
+    if (!camera?.id) return
     setStartPracticeLoading(true)
     setStartError('')
     try {
       const { id: matchId } = await createMatch({
         match_type: 'practice',
-        player_one: { name: playerName, race_to: 0 },
+        player_one: { name: 'Player', race_to: 0 },
         camera_id: camera.id,
       })
       await fetchActiveMatch()
@@ -351,74 +318,6 @@ export function Camera() {
     }
   }
 
-  const handleGoLiveFacebook = () => {
-    sessionStorage.setItem('table-tv-go-live-privacy', goLivePrivacy)
-    const returnTo = `/camera/${id}`
-    window.location.href = `/api/facebook/auth?return_to=${encodeURIComponent(returnTo)}`
-  }
-
-  const runFacebookLiveWithAuthKey = useCallback(
-    async (authKey) => {
-      if (!camera?.id) return
-      setRtmpError('')
-      setRtmpStarting(true)
-      try {
-        const prefix = locationName ? `${locationName} - ${camera.name}` : camera.name
-        const title = activeMatch
-          ? (activeMatch.match_type === 'practice'
-            ? `${prefix}: Practice: ${activeMatch.player_one.name}`
-            : `${prefix}: ${activeMatch.player_one.name} vs ${activeMatch.player_two.name}`)
-          : `${prefix} - Table TV`
-        const formatRating = (p) => p.rating ? `${p.rating.type} ${p.rating.value}` : null
-        const p1Part = activeMatch
-          ? (formatRating(activeMatch.player_one)
-            ? `${activeMatch.player_one.name} (${formatRating(activeMatch.player_one)})`
-            : activeMatch.player_one.name)
-          : null
-        const p2Part = activeMatch && activeMatch.match_type !== 'practice'
-          ? (formatRating(activeMatch.player_two)
-            ? `${activeMatch.player_two.name} (${formatRating(activeMatch.player_two)})`
-            : activeMatch.player_two.name)
-          : null
-        const headerLine = activeMatch?.match_type === 'practice'
-          ? (p1Part ? `Practice: ${p1Part}` : null)
-          : (activeMatch && p1Part && p2Part ? `${p1Part} vs ${p2Part}` : null)
-        const desc = activeMatch?.description?.trim()
-        const description = headerLine
-          ? (desc ? `${headerLine}\n${desc}` : headerLine)
-          : undefined
-        const privacy = sessionStorage.getItem('table-tv-go-live-privacy') || 'EVERYONE'
-        sessionStorage.removeItem('table-tv-go-live-privacy')
-        console.log('[Camera] Fetching Facebook live URL...', { title, hasDescription: !!description, privacy })
-        const { url } = await getFacebookLiveUrl({ title, description, privacy, auth_key: authKey })
-        console.log('[Camera] Got stream URL, starting RTMP...', { urlPrefix: url.slice(0, 50) })
-        await startRtmpStream(camera.id, url)
-        console.log('[Camera] RTMP stream started successfully')
-        setRtmpActive(true)
-        setRtmpDialogOpen(false)
-        setRtmpUrl('')
-      } catch (err) {
-        console.error('[Camera] Facebook live flow failed', err)
-        setRtmpError(err.message)
-      } finally {
-        setRtmpStarting(false)
-        setIsFacebookLiveFlow(false)
-      }
-    },
-    [camera?.id, activeMatch, locationName]
-  )
-
-  useEffect(() => {
-    const authKey = searchParams.get('auth_key')
-    if (!authKey || !id || !camera?.id || matchLoading) return
-    console.log('[Camera] Got auth_key from URL, starting Facebook live flow', { cameraId: camera?.id, hasActiveMatch: !!activeMatch })
-    setSearchParams({}, { replace: true })
-    setIsFacebookLiveFlow(true)
-    setRtmpDialogOpen(true)
-    runFacebookLiveWithAuthKey(authKey)
-  }, [searchParams, id, camera?.id, matchLoading, activeMatch, setSearchParams, runFacebookLiveWithAuthKey])
-
-
   const handleStopRtmp = async () => {
     if (!camera?.id || rtmpStopping) return
     setRtmpStopping(true)
@@ -522,7 +421,7 @@ export function Camera() {
                 onRetry={() => {
                   setStreamError(false)
                   setPreviewLoaded(false)
-                  getToken().then((t) => setStreamUrl(urlWithToken(`/api/cameras/${camera.id}/stream`, t)))
+                  setStreamUrl(`/api/cameras/${camera.id}/stream`)
                 }}
                 onStreamError={() => setStreamError(true)}
                 rtmpActive={rtmpActive}
@@ -609,7 +508,7 @@ export function Camera() {
                     startIcon={<PlayArrowIcon />}
                     variant="outlined"
                     onClick={handleStartPractice}
-                    disabled={!user || startPracticeLoading}
+                    disabled={startPracticeLoading}
                   >
                     {startPracticeLoading ? 'Starting…' : 'Start practice'}
                   </Button>
@@ -640,93 +539,47 @@ export function Camera() {
       <Dialog open={rtmpDialogOpen} onClose={() => setRtmpDialogOpen(false)} maxWidth="sm" fullWidth>
         <DialogTitle>Go Live</DialogTitle>
         <DialogContent>
-          {rtmpStarting && isFacebookLiveFlow ? (
-            <Box display="flex" justifyContent="center" alignItems="center" py={4}>
-              <CircularProgress />
-            </Box>
-          ) : (
-            <>
-              {rtmpActive && (
-                <Alert severity="info" sx={{ mb: 2 }}>
-                  Stream is live. Click &quot;Stop stream&quot; below to end the broadcast.
-                </Alert>
-              )}
-              {rtmpError && (
-                <Alert severity="error" sx={{ mb: 2 }} onClose={() => setRtmpError('')}>
-                  {rtmpError}
-                </Alert>
-              )}
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
-                Push the stream to YouTube Live, Facebook, or other RTMP destinations.
-                The match overlay (player names, ratings, score) is burned into the stream.
-              </Typography>
-              {facebookConfigured && (
-                <>
-                  <FormControl fullWidth sx={{ mb: 2 }} disabled={rtmpStarting}>
-                    <InputLabel>Privacy</InputLabel>
-                    <Select
-                      value={goLivePrivacy}
-                      label="Privacy"
-                      onChange={(e) => {
-                        const v = e.target.value
-                        setGoLivePrivacy(v)
-                        localStorage.setItem('table-tv-go-live-privacy', v)
-                      }}
-                    >
-                      <MenuItem value="EVERYONE">Public</MenuItem>
-                      <MenuItem value="ALL_FRIENDS">Friends</MenuItem>
-                      <MenuItem value="FRIENDS_OF_FRIENDS">Friends of friends</MenuItem>
-                      <MenuItem value="SELF">Only me</MenuItem>
-                    </Select>
-                  </FormControl>
-                  <Button
-                    variant="outlined"
-                    fullWidth
-                    sx={{ mb: 1 }}
-                    onClick={handleGoLiveFacebook}
-                    disabled={rtmpStarting}
-                  >
-                    {rtmpStarting ? 'Starting…' : 'Go Live with Facebook'}
-                  </Button>
-                  <Typography variant="caption" color="text.secondary" display="block" sx={{ mb: 2 }}>
-                    You&apos;ll sign in with Facebook; the stream will appear on your profile.
-                  </Typography>
-                </>
-              )}
-              <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
-                Or enter RTMP URL manually:
-              </Typography>
-              <TextField
-                label="RTMP URL"
-                placeholder="e.g. rtmp://a.rtmp.youtube.com/live2/xxxx"
-                value={rtmpUrl}
-                onChange={(e) => setRtmpUrl(e.target.value)}
-                fullWidth
-                error={!!rtmpError}
-                helperText={rtmpError}
-                disabled={rtmpStarting}
-              />
-            </>
+          {rtmpActive && (
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Stream is live. Click &quot;Stop stream&quot; below to end the broadcast.
+            </Alert>
           )}
+          {rtmpError && (
+            <Alert severity="error" sx={{ mb: 2 }} onClose={() => setRtmpError('')}>
+              {rtmpError}
+            </Alert>
+          )}
+          <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
+            Push the stream to YouTube Live or other RTMP destinations.
+            The match overlay (player names, ratings, score) is burned into the stream.
+          </Typography>
+          <TextField
+            label="RTMP URL"
+            placeholder="e.g. rtmp://a.rtmp.youtube.com/live2/xxxx"
+            value={rtmpUrl}
+            onChange={(e) => setRtmpUrl(e.target.value)}
+            fullWidth
+            error={!!rtmpError}
+            helperText={rtmpError}
+            disabled={rtmpStarting}
+          />
         </DialogContent>
-        {!(rtmpStarting && isFacebookLiveFlow) && (
-          <DialogActions>
-            <Button onClick={() => setRtmpDialogOpen(false)}>Cancel</Button>
-            {rtmpActive && (
-              <Button
-                variant="outlined"
-                color="error"
-                onClick={handleStopRtmp}
-                disabled={rtmpStopping}
-              >
-                {rtmpStopping ? 'Stopping…' : 'Stop stream'}
-              </Button>
-            )}
-            <Button variant="contained" onClick={handleStartRtmp} disabled={rtmpStarting || rtmpActive}>
-              {rtmpStarting ? 'Starting…' : 'Start stream'}
+        <DialogActions>
+          <Button onClick={() => setRtmpDialogOpen(false)}>Cancel</Button>
+          {rtmpActive && (
+            <Button
+              variant="outlined"
+              color="error"
+              onClick={handleStopRtmp}
+              disabled={rtmpStopping}
+            >
+              {rtmpStopping ? 'Stopping…' : 'Stop stream'}
             </Button>
-          </DialogActions>
-        )}
+          )}
+          <Button variant="contained" onClick={handleStartRtmp} disabled={rtmpStarting || rtmpActive}>
+            {rtmpStarting ? 'Starting…' : 'Start stream'}
+          </Button>
+        </DialogActions>
       </Dialog>
 
       <Dialog open={startDialogOpen} onClose={() => setStartDialogOpen(false)} maxWidth="sm" fullWidth>

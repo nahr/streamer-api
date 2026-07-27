@@ -1,15 +1,11 @@
 import { useState, useEffect } from 'react'
 import { Box, Typography, Paper, Chip, TextField, Button, CircularProgress } from '@mui/material'
-import { getFacebookStatus } from '../../cameras/api/cameras.js'
 import { getSettings, updateSettings } from '../api/settings.js'
 import { checkForUpgrades, upgradeNow } from '../api/upgrade.js'
 import { useApiInfo } from '../../../apiInfoStore.jsx'
 
 export function ServerSettings() {
   const { refetch, version, candidateVersion } = useApiInfo()
-  const [facebookConfigured, setFacebookConfigured] = useState(false)
-  const [facebookRedirectUri, setFacebookRedirectUri] = useState('')
-  const [facebookAppRedirectUri, setFacebookAppRedirectUri] = useState('')
   const [loading, setLoading] = useState(true)
   const [locationName, setLocationName] = useState('')
   const [locationNameSaving, setLocationNameSaving] = useState(false)
@@ -27,21 +23,15 @@ export function ServerSettings() {
     let cancelled = false
     async function check() {
       try {
-        const [fbStatus, settings] = await Promise.all([
-          getFacebookStatus(),
-          getSettings(),
-        ])
+        const settings = await getSettings()
         if (!cancelled) {
-          setFacebookConfigured(fbStatus.configured)
-          setFacebookRedirectUri(fbStatus.redirect_uri || '')
-          setFacebookAppRedirectUri(fbStatus.app_redirect_uri || '')
           setLocationName(settings.location_name || '')
           setRecordPath(settings.record_path || '')
           setRecordSegmentDuration(settings.record_segment_duration || '1m')
           setRecordDeleteAfter(settings.record_delete_after || '24h')
         }
       } catch {
-        if (!cancelled) setFacebookConfigured(false)
+        // ignore
       } finally {
         if (!cancelled) setLoading(false)
       }
@@ -236,62 +226,6 @@ export function ServerSettings() {
             {rollingSaving ? 'Saving…' : rollingSaved ? 'Saved' : 'Save'}
           </Button>
         </Box>
-      </Paper>
-
-      <Paper variant="outlined" sx={{ p: 2, mb: 2 }}>
-        <Typography variant="h6" gutterBottom>
-          Facebook Live
-        </Typography>
-        {loading ? (
-          <Typography color="text.secondary">Checking…</Typography>
-        ) : (
-          <>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 2 }}>
-              <Typography color="text.secondary">
-                Status:
-              </Typography>
-              <Chip
-                label={facebookConfigured ? 'Configured' : 'Not configured'}
-                size="small"
-                color={facebookConfigured ? 'success' : 'default'}
-              />
-            </Box>
-            {!facebookConfigured ? (
-              <Typography variant="body2" color="text.secondary" component="div">
-                <p>To enable &quot;Go Live with Facebook&quot;, set these environment variables:</p>
-                <ul>
-                  <li><code>FACEBOOK_APP_ID</code> – Your Facebook App ID from developers.facebook.com</li>
-                  <li><code>FACEBOOK_APP_SECRET</code> – Your Facebook App Secret</li>
-                  <li><code>BASE_URL</code> – Optional. OAuth callback URL is derived from the current host; set this only if needed (e.g. behind a proxy)</li>
-                </ul>
-                <p>Users will sign in with their own Facebook account when they click &quot;Go Live with Facebook&quot;. Streams go to their profile. Add <code>publish_video</code> to your app&apos;s permissions.</p>
-                <p>Requirements: Account 60+ days old; 100+ followers for profile streaming.</p>
-              </Typography>
-            ) : (
-              <Typography variant="body2" color="text.secondary" component="div">
-                <p><strong>Redirect URI to add in Facebook:</strong></p>
-                <p>In developers.facebook.com: <strong>Products</strong> → <strong>Facebook Login</strong> → <strong>Settings</strong> → under <strong>Client OAuth Settings</strong>, add this to <strong>Valid OAuth Redirect URIs</strong>:</p>
-                <Box component="pre" sx={{ bgcolor: 'action.hover', p: 1.5, borderRadius: 1, overflow: 'auto', fontSize: '0.875rem' }}>
-                  {facebookRedirectUri || '(loading…)'}
-                </Box>
-                {facebookAppRedirectUri && (
-                  <>
-                    <Typography variant="body2" color="text.secondary" sx={{ mt: 2 }}>
-                      <strong>For the mobile app</strong> (deeplink to reopen app), also add:
-                    </Typography>
-                    <Box component="pre" sx={{ bgcolor: 'action.hover', p: 1.5, borderRadius: 1, overflow: 'auto', fontSize: '0.875rem', mt: 0.5 }}>
-                      {facebookAppRedirectUri}
-                    </Box>
-                  </>
-                )}
-                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-                  The URI must match exactly. After saving, the stream will appear on your Facebook profile when you go live.
-                </Typography>
-              </Typography>
-            )}
-          </>
-        )}
-
       </Paper>
     </Box>
   )

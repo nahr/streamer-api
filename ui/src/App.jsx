@@ -1,79 +1,29 @@
 import { useState, useEffect } from 'react'
-import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
+import { Routes, Route, Navigate } from 'react-router-dom'
 import { Box, Button, CircularProgress, Typography } from '@mui/material'
 
 import { useApiInfo } from './apiInfoStore.jsx'
-import { useAuth0 } from '@auth0/auth0-react'
-import { useAuth } from './authStore.jsx'
 import { Layout } from './components/Layout'
 import { Home } from './pages/Home'
-import { GettingStarted } from './pages/GettingStarted'
 import { Camera, Match } from './features/cameras'
 import { Admin } from './features/admin'
-import { FacebookCallback } from './pages/FacebookCallback'
-
-/** Wraps a route that requires authentication. Redirects to login if not logged in. */
-function RequireAuth({ children }) {
-  const location = useLocation()
-  const { loginWithRedirect } = useAuth0()
-  const { isLoggedIn, loading } = useAuth()
-
-  useEffect(() => {
-    if (!loading && !isLoggedIn) {
-      loginWithRedirect({ appState: { returnTo: location.pathname } })
-    }
-  }, [loading, isLoggedIn, loginWithRedirect, location.pathname])
-
-  if (loading || !isLoggedIn) {
-    return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight={200}>
-        <CircularProgress />
-      </Box>
-    )
-  }
-  return children
-}
 
 const LOADING_TIMEOUT_MS = 15000
 
 function App() {
-  const location = useLocation()
-  const { initialized, hasUsers, loading, retrying, refetch } = useApiInfo()
-  const { isLoading: auth0Loading, error: auth0Error } = useAuth0()
+  const { loading, retrying, refetch } = useApiInfo()
   const [loadingTimedOut, setLoadingTimedOut] = useState(false)
 
   useEffect(() => {
-    if (!loading && !auth0Loading) {
+    if (!loading) {
       setLoadingTimedOut(false)
       return
     }
     const t = setTimeout(() => setLoadingTimedOut(true), LOADING_TIMEOUT_MS)
     return () => clearTimeout(t)
-  }, [loading, auth0Loading])
+  }, [loading])
 
-  if (location.pathname === '/facebook/callback') {
-    return <FacebookCallback />
-  }
-
-  if (auth0Error) {
-    return (
-      <Box
-        display="flex"
-        flexDirection="column"
-        alignItems="center"
-        justifyContent="center"
-        gap={2}
-        minHeight="100vh"
-      >
-        <Typography color="error">Auth0 error: {auth0Error.message}</Typography>
-        <Button variant="outlined" onClick={() => window.location.replace(window.location.pathname)}>
-          Clear and retry
-        </Button>
-      </Box>
-    )
-  }
-
-  if (loading || auth0Loading) {
+  if (loading) {
     return (
       <Box
         display="flex"
@@ -93,15 +43,8 @@ function App() {
               Taking longer than expected?
             </Typography>
             <Typography variant="body2" color="text.secondary">
-              Ensure the API is running (port 8080). If you just returned from login, try clearing the URL.
+              Ensure the API is running (port 8080).
             </Typography>
-            <Button
-              variant="outlined"
-              size="small"
-              onClick={() => window.location.replace(window.location.pathname)}
-            >
-              Clear URL and refresh
-            </Button>
             <Button variant="outlined" size="small" onClick={() => refetch()}>
               Retry connection
             </Button>
@@ -111,39 +54,16 @@ function App() {
     )
   }
 
-  if (!initialized) {
-    return (
-      <Box
-        display="flex"
-        flexDirection="column"
-        alignItems="center"
-        justifyContent="center"
-        gap={2}
-        minHeight="100vh"
-      >
-        <Typography color="text.secondary">
-          Auth0 is not configured. Set [auth0] domain, client_id, and audience in table-tv.config.
-        </Typography>
-      </Box>
-    )
-  }
-
-  // No users yet: show getting started
-  if (!hasUsers) {
-    return <GettingStarted />
-  }
-
   return (
     <Routes>
       <Route path="/" element={<Layout />}>
         <Route index element={<Home />} />
-        <Route path="camera/:id" element={<RequireAuth><Camera /></RequireAuth>} />
-        <Route path="match/:id" element={<RequireAuth><Match /></RequireAuth>} />
+        <Route path="camera/:id" element={<Camera />} />
+        <Route path="match/:id" element={<Match />} />
         <Route path="admin" element={<Admin />} />
         <Route path="admin/server-settings" element={<Admin />} />
         <Route path="admin/camera-settings" element={<Admin />} />
         <Route path="admin/matches" element={<Admin />} />
-        <Route path="admin/users" element={<Admin />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
     </Routes>

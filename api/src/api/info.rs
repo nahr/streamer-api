@@ -23,9 +23,8 @@ pub struct ApiServerInfo {
     pub record_delete_after: String,
 }
 
-/// GET /api/info - Returns server info. `initialized` is true when Auth0 is configured (no registration gate).
+/// GET /api/info - Returns server info.
 pub async fn info(State(app): State<AppState>) -> Result<axum::Json<ApiServerInfo>, ApiError> {
-    let initialized = app.jwks.is_some();
     let settings = app.db.get_settings().unwrap_or_default();
     let has_users = app.db.has_admin().unwrap_or(false);
     let cameras_configured = app.db.cameras_configured().unwrap_or(false);
@@ -54,7 +53,7 @@ pub async fn info(State(app): State<AppState>) -> Result<axum::Json<ApiServerInf
     }
 
     Ok(axum::Json(ApiServerInfo {
-        initialized,
+        initialized: true,
         version,
         candidate_version,
         location_name: settings.location_name,
